@@ -22,6 +22,8 @@ service:
 
 grpc:
   listenAddr: "0.0.0.0:50051"
+  # Max gRPC send/recv size in bytes (default 64 MiB; tonic default is 4 MiB).
+  maxMessageBytes: 67108864
 
 store:
   keyPrefix: responses-api-store:responses
@@ -36,6 +38,9 @@ backgroundQueue:
 redis:
   url: ""
 
+# Bundled Valkey is ephemeral (no PVC, snapshots/AOF disabled). Use for dev/smoke
+# only; production should set valkey.enabled=false and point redis.url at persistent
+# external Redis/Valkey.
 valkey:
   enabled: true
   image:

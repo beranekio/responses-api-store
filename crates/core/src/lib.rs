@@ -4,7 +4,10 @@ pub mod model;
 pub mod queue;
 pub mod store;
 
-pub use config::{grpc_listen_addr_from_env, service_version, StoreConfig};
+pub use config::{
+    grpc_listen_addr_from_env, grpc_max_message_bytes_from_env, service_version, StoreConfig,
+    DEFAULT_GRPC_MAX_MESSAGE_BYTES,
+};
 pub use error::StoreError;
 pub use model::{
     build_cancelled_response, build_queued_response, build_upstream_request, generate_response_id,

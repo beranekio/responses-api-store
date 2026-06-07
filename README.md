@@ -59,6 +59,7 @@ charts/responses-api-store/    # Helm subchart
 | Environment variable | Default | Description |
 | --- | --- | --- |
 | `GRPC_LISTEN_ADDR` | `0.0.0.0:50051` | gRPC bind address |
+| `GRPC_MAX_MESSAGE_BYTES` | `67108864` (64 MiB) | Max gRPC send/recv message size |
 | `RESPONSE_ID_STORE_URL` | `redis://valkey:6379` | Valkey/Redis URL |
 | `RESPONSE_ID_STORE_KEY_PREFIX` | `responses-api-store:responses` | Key prefix for stored responses |
 | `RESPONSE_ID_STORE_TTL_SECONDS` | `86400` | Default TTL for stored responses |
@@ -132,7 +133,9 @@ docker run --rm -p 50051:50051 \
 
 ## Helm
 
-The chart can run standalone or as a subchart. By default it deploys an embedded Valkey instance.
+The chart can run standalone or as a subchart. By default it deploys an embedded Valkey instance for local development and smoke testing.
+
+**Bundled Valkey is ephemeral:** the subchart disables RDB/AOF persistence and does not mount a PVC, so pod restarts or reschedules permanently lose stored responses, stream entries, and consumer-group state. For production, disable bundled Valkey and use external Redis/Valkey with persistence.
 
 ```bash
 helm install responses-api-store ./charts/responses-api-store

@@ -11,6 +11,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// DefaultMaxMessageBytes is the default gRPC send/recv limit (64 MiB).
+// The gRPC library default is 4 MiB, which is too small for large Responses API payloads.
+const DefaultMaxMessageBytes = 64 * 1024 * 1024
+
 // StoredResponse mirrors the gateway-owned record used by Responses API compatible services.
 type StoredResponse struct {
 	Upstream                 string          `json:"upstream"`
@@ -38,7 +42,13 @@ type Client struct {
 
 // Dial connects to the Responses API store gRPC endpoint.
 func Dial(ctx context.Context, target string, opts ...grpc.DialOption) (*Client, error) {
-	dialOpts := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, opts...)
+	dialOpts := append([]grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(DefaultMaxMessageBytes),
+			grpc.MaxCallSendMsgSize(DefaultMaxMessageBytes),
+		),
+	}, opts...)
 	conn, err := grpc.DialContext(ctx, target, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("dial responses api store: %w", err)

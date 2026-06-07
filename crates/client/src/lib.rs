@@ -15,6 +15,7 @@ pub use responses_api_store_proto::v1::{
     UpdateResponseRequest,
 };
 
+use responses_api_store_core::grpc_max_message_bytes_from_env;
 use responses_api_store_proto::ResponsesApiStoreClient;
 use tonic::transport::{Channel, Endpoint};
 
@@ -24,16 +25,23 @@ pub struct Client {
 
 impl Client {
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self> {
-        let endpoint = Endpoint::from_shared(endpoint.into())?;
-        let channel = endpoint.connect().await?;
-        Ok(Self {
-            inner: ResponsesApiStoreClient::new(channel),
-        })
+        let max_message_bytes = grpc_max_message_bytes_from_env()
+            .map_err(|err| ClientError::Configuration(err.to_string()))?;
+        let channel = Endpoint::from_shared(endpoint.into())?.connect().await?;
+        Ok(Self::from_channel_with_limit(channel, max_message_bytes))
     }
 
     pub fn from_channel(channel: Channel) -> Self {
+        let max_message_bytes = grpc_max_message_bytes_from_env()
+            .unwrap_or(responses_api_store_core::DEFAULT_GRPC_MAX_MESSAGE_BYTES);
+        Self::from_channel_with_limit(channel, max_message_bytes)
+    }
+
+    pub fn from_channel_with_limit(channel: Channel, max_message_bytes: usize) -> Self {
         Self {
-            inner: ResponsesApiStoreClient::new(channel),
+            inner: ResponsesApiStoreClient::new(channel)
+                .max_decoding_message_size(max_message_bytes)
+                .max_encoding_message_size(max_message_bytes),
         }
     }
 

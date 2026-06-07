@@ -2,6 +2,9 @@ use std::env;
 
 use anyhow::{bail, Context, Result};
 
+/// Default gRPC max send/recv size (64 MiB). Tonic's built-in default is 4 MiB.
+pub const DEFAULT_GRPC_MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Clone, Debug)]
 pub struct StoreConfig {
     pub redis_url: String,
@@ -49,6 +52,19 @@ impl StoreConfig {
 
 pub fn grpc_listen_addr_from_env() -> Result<String> {
     Ok(env::var("GRPC_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:50051".to_string()))
+}
+
+pub fn grpc_max_message_bytes_from_env() -> Result<usize> {
+    let bytes = parse_env_usize("GRPC_MAX_MESSAGE_BYTES", DEFAULT_GRPC_MAX_MESSAGE_BYTES)?;
+    validate_grpc_max_message_bytes(bytes)?;
+    Ok(bytes)
+}
+
+fn validate_grpc_max_message_bytes(bytes: usize) -> Result<()> {
+    if bytes == 0 {
+        bail!("GRPC_MAX_MESSAGE_BYTES must be greater than 0");
+    }
+    Ok(())
 }
 
 pub fn service_version() -> &'static str {
@@ -115,6 +131,16 @@ mod tests {
             stream_maxlen: 100,
         };
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_zero_grpc_max_message_bytes() {
+        assert!(validate_grpc_max_message_bytes(0).is_err());
+    }
+
+    #[test]
+    fn accepts_default_grpc_max_message_bytes() {
+        assert!(validate_grpc_max_message_bytes(DEFAULT_GRPC_MAX_MESSAGE_BYTES).is_ok());
     }
 
     #[test]

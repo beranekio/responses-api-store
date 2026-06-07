@@ -10,6 +10,8 @@ pub enum ClientError {
     Serialization(String),
     #[error("response not found: {0}")]
     NotFound(String),
+    #[error("configuration error: {0}")]
+    Configuration(String),
 }
 
 pub type Result<T> = std::result::Result<T, ClientError>;

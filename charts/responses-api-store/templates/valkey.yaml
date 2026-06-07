@@ -1,4 +1,5 @@
 {{- if .Values.valkey.enabled }}
+{{/* Ephemeral dev-only Valkey: no PVC and persistence disabled via --save/--appendonly below. */}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -47,6 +47,7 @@ Key environment variables (server defaults align with duihua-ai-services naming)
 | Variable | Default | Role |
 | --- | --- | --- |
 | `GRPC_LISTEN_ADDR` | `0.0.0.0:50051` | gRPC bind address |
+| `GRPC_MAX_MESSAGE_BYTES` | `67108864` (64 MiB) | Max gRPC send/recv message size |
 | `RESPONSE_ID_STORE_URL` | `redis://valkey:6379` | Valkey/Redis URL |
 | `RESPONSE_ID_STORE_KEY_PREFIX` | `responses-api-store:responses` | Response key prefix |
 | `RESPONSE_ID_STORE_TTL_SECONDS` | `86400` | Stored response TTL |
@@ -148,6 +149,10 @@ For unrelated edits (docs-only, etc.), run only the checks relevant to those pat
 - Store OpenAI-compatible response bodies as JSON strings in protobuf (`response_json`, `input_json`, etc.) rather than modelling the full Responses API schema in proto.
 - Keep Kubernetes defaults cloud-provider-neutral unless explicitly required.
 - Document user-visible changes in `README.md`.
+
+## Helm bundled Valkey
+
+The subchart's optional Valkey deployment is **ephemeral by design** (no PVC; `--save ""` and `--appendonly no`). Document this when changing chart defaults. Production deployments should set `valkey.enabled=false` and provide a persistent external Redis/Valkey URL via `redis.url`.
 
 ## Integration with duihua-ai-services
 
