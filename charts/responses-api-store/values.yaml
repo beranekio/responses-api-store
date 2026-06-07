@@ -2,8 +2,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/beranekio/responses-api-store
-  tag: "0.1.0"
-  pullPolicy: IfNotPresent
+  tag: "latest"
+  pullPolicy: Always
 
 nameOverride: ""
 fullnameOverride: ""
