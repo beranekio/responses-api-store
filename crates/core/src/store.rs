@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use redis::{aio::MultiplexedConnection, AsyncCommands};
+use redis::{aio::ConnectionManager, AsyncCommands};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
@@ -14,9 +14,10 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ResponseStore {
-    connection: redis::aio::ConnectionManager,
-    /// Exclusive connection for WATCH/MULTI/EXEC; must not be cloned or shared with other RPCs.
-    transaction_connection: Arc<Mutex<MultiplexedConnection>>,
+    connection: ConnectionManager,
+    redis_client: redis::Client,
+    /// Exclusive reconnecting connection for WATCH/MULTI/EXEC; must not be cloned outside the mutex.
+    transaction_connection: Arc<Mutex<ConnectionManager>>,
     key_prefix: String,
     default_ttl_seconds: u64,
     stale_seconds: i64,
@@ -30,15 +31,15 @@ impl ResponseStore {
         stale_seconds: i64,
     ) -> Result<Self> {
         let client = redis::Client::open(redis_url).map_err(StoreError::Storage)?;
-        let connection = redis::aio::ConnectionManager::new(client.clone())
+        let connection = ConnectionManager::new(client.clone())
             .await
             .map_err(StoreError::Storage)?;
-        let transaction_connection = client
-            .get_multiplexed_async_connection()
+        let transaction_connection = ConnectionManager::new(client.clone())
             .await
             .map_err(StoreError::Storage)?;
         Ok(Self {
             connection,
+            redis_client: client,
             transaction_connection: Arc::new(Mutex::new(transaction_connection)),
             key_prefix,
             default_ttl_seconds,
@@ -163,67 +164,38 @@ impl ResponseStore {
         let key = self.key(response_id);
 
         for attempt in 0..MAX_ATTEMPTS {
-            let mut guard = self.transaction_connection.lock().await;
-            let connection = &mut *guard;
-            redis::cmd("WATCH")
-                .arg(&key)
-                .query_async::<()>(connection)
+            let attempt_result = {
+                let mut guard = self.transaction_connection.lock().await;
+                discard_open_transaction(&mut guard).await;
+                self.reconcile_stale_transaction_attempt(
+                    &mut guard,
+                    &key,
+                    response_id,
+                    now,
+                    stale_seconds,
+                )
                 .await
-                .map_err(StoreError::Storage)?;
-
-            let raw: Option<String> = connection.get(&key).await.map_err(StoreError::Storage)?;
-
-            let Some(raw) = raw else {
-                let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
-                return Err(StoreError::NotFound(response_id.to_string()));
             };
 
-            let stored: StoredResponse =
-                serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
-
-            if !should_reconcile_stale(&stored)
-                || !is_stale_enqueued(stored.enqueued_at, now, stale_seconds)
-            {
-                let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
-                return Ok(stored);
-            }
-
-            let mut updated = stored;
-            apply_stale_failure(&mut updated, response_id);
-            let payload = serde_json::to_string(&updated)
-                .map_err(|e| StoreError::Serialization(e.to_string()))?;
-
-            let ttl: i64 = connection.ttl(&key).await.map_err(StoreError::Storage)?;
-            let ttl = if ttl <= 0 {
-                self.default_ttl_seconds
-            } else {
-                ttl as u64
-            };
-
-            redis::cmd("MULTI")
-                .query_async::<()>(connection)
-                .await
-                .map_err(StoreError::Storage)?;
-            redis::cmd("SETEX")
-                .arg(&key)
-                .arg(ttl)
-                .arg(&payload)
-                .query_async::<()>(connection)
-                .await
-                .map_err(StoreError::Storage)?;
-
-            let exec_result: Option<Vec<redis::Value>> = redis::cmd("EXEC")
-                .query_async(connection)
-                .await
-                .map_err(StoreError::Storage)?;
-
-            if exec_result.is_some() {
-                tracing::debug!(response_id, "reconciled stale queued background response");
-                return Ok(updated);
-            }
-
-            if attempt + 1 == MAX_ATTEMPTS {
-                break;
+            match attempt_result {
+                Ok(Some(updated)) => return Ok(updated),
+                Ok(None) => {
+                    if attempt + 1 == MAX_ATTEMPTS {
+                        break;
+                    }
+                }
+                Err(StoreError::Storage(err)) => {
+                    tracing::warn!(
+                        response_id,
+                        error = %err,
+                        "stale reconcile transaction failed; resetting dedicated connection"
+                    );
+                    self.reset_transaction_connection().await?;
+                    if attempt + 1 == MAX_ATTEMPTS {
+                        return Err(StoreError::Storage(err));
+                    }
+                }
+                Err(err) => return Err(err),
             }
         }
 
@@ -273,6 +245,87 @@ impl ResponseStore {
     fn key(&self, response_id: &str) -> String {
         response_store_key(&self.key_prefix, response_id)
     }
+
+    async fn reset_transaction_connection(&self) -> Result<()> {
+        let connection = ConnectionManager::new(self.redis_client.clone())
+            .await
+            .map_err(StoreError::Storage)?;
+        let mut guard = self.transaction_connection.lock().await;
+        *guard = connection;
+        Ok(())
+    }
+
+    async fn reconcile_stale_transaction_attempt(
+        &self,
+        connection: &mut ConnectionManager,
+        key: &str,
+        response_id: &str,
+        now: i64,
+        stale_seconds: i64,
+    ) -> Result<Option<StoredResponse>> {
+        redis::cmd("WATCH")
+            .arg(key)
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        let raw: Option<String> = connection.get(key).await.map_err(StoreError::Storage)?;
+
+        let Some(raw) = raw else {
+            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            return Err(StoreError::NotFound(response_id.to_string()));
+        };
+
+        let stored: StoredResponse =
+            serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
+
+        if !should_reconcile_stale(&stored)
+            || !is_stale_enqueued(stored.enqueued_at, now, stale_seconds)
+        {
+            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            return Ok(Some(stored));
+        }
+
+        let mut updated = stored;
+        apply_stale_failure(&mut updated, response_id);
+        let payload = serde_json::to_string(&updated)
+            .map_err(|e| StoreError::Serialization(e.to_string()))?;
+
+        let ttl: i64 = connection.ttl(key).await.map_err(StoreError::Storage)?;
+        let ttl = if ttl <= 0 {
+            self.default_ttl_seconds
+        } else {
+            ttl as u64
+        };
+
+        redis::cmd("MULTI")
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+        redis::cmd("SETEX")
+            .arg(key)
+            .arg(ttl)
+            .arg(&payload)
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        let exec_result: Option<Vec<redis::Value>> = redis::cmd("EXEC")
+            .query_async(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        if exec_result.is_some() {
+            tracing::debug!(response_id, "reconciled stale queued background response");
+            return Ok(Some(updated));
+        }
+
+        Ok(None)
+    }
+}
+
+async fn discard_open_transaction(connection: &mut ConnectionManager) {
+    let _ = redis::cmd("DISCARD").query_async::<()>(connection).await;
 }
 
 fn apply_stale_failure(stored: &mut StoredResponse, response_id: &str) {

@@ -53,7 +53,9 @@ spec:
             - "900"
             - "1"
             - "--appendonly"
-            - "no"
+            - "yes"
+            - "--appendfsync"
+            - "everysec"
           volumeMounts:
             - name: data
               mountPath: /data
