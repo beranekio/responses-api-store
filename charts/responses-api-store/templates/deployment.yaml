@@ -22,6 +22,19 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "responses-api-store.serviceAccountName" . }}
+      {{- if .Values.valkey.enabled }}
+      initContainers:
+        - name: wait-for-valkey
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "responses-api-store.fullname" . }}-valkey {{ .Values.valkey.service.port }}; do
+                echo "waiting for bundled Valkey"
+                sleep 2
+              done
+      {{- end }}
       containers:
         - name: responses-api-store
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -33,7 +46,7 @@ spec:
             - name: GRPC_LISTEN_ADDR
               value: {{ .Values.grpc.listenAddr | quote }}
             - name: GRPC_MAX_MESSAGE_BYTES
-              value: {{ .Values.grpc.maxMessageBytes | quote }}
+              value: {{ printf "%d" (int .Values.grpc.maxMessageBytes) | quote }}
             - name: RESPONSE_ID_STORE_URL
               value: {{ include "responses-api-store.redisUrl" . | quote }}
             - name: RESPONSE_ID_STORE_KEY_PREFIX

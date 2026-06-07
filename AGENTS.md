@@ -123,6 +123,19 @@ docker build -t responses-api-store:local .
 
 The builder stage requires `protobuf-compiler` (already installed in `Dockerfile`). The runtime image is distroless (`gcr.io/distroless/cc-debian12:nonroot`); do not add a shell or package manager to the runtime stage.
 
+### Helm chart smoke test (kind)
+
+Deploys the chart to a local kind cluster with a freshly built image, port-forwards the
+release Service, and runs the Rust smoke example against it:
+
+```bash
+make helm-smoke
+# or: ./scripts/helm-smoke-kind.sh
+```
+
+Requires `kind`, `kubectl`, `helm`, `docker`, and Rust toolchain with `protoc`. CI runs
+this in the `helm-smoke` job in `.github/workflows/validate.yml`.
+
 ### Integration smoke test
 
 Requires a running Valkey/Redis instance:
