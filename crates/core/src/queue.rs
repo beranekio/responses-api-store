@@ -6,7 +6,7 @@ use redis::{
         StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamKey, StreamMaxlen,
         StreamReadOptions, StreamReadReply,
     },
-    AsyncCommands, RedisError, RedisResult, Script,
+    AsyncCommands, AsyncConnectionConfig, RedisError, RedisResult, Script,
 };
 use tokio::time::sleep;
 
@@ -18,11 +18,13 @@ use crate::{
 
 const LOAD_RETRY_ATTEMPTS: usize = 3;
 const LOAD_RETRY_DELAY: Duration = Duration::from_millis(50);
+/// Extra client response-timeout headroom above `block_ms` for blocking XREADGROUP.
+const BLOCKING_READ_TIMEOUT_SLACK_MS: u64 = 500;
 
 #[derive(Clone)]
 pub struct BackgroundQueue {
+    client: redis::Client,
     command_connection: ConnectionManager,
-    blocking_connection: ConnectionManager,
     stream_key: String,
     stream_maxlen: usize,
 }
@@ -52,12 +54,9 @@ impl BackgroundQueue {
         let command_connection = ConnectionManager::new(client.clone())
             .await
             .map_err(StoreError::Storage)?;
-        let blocking_connection = ConnectionManager::new(client)
-            .await
-            .map_err(StoreError::Storage)?;
         Ok(Self {
+            client,
             command_connection,
-            blocking_connection,
             stream_key,
             stream_maxlen,
         })
@@ -218,7 +217,7 @@ impl BackgroundQueue {
         cursor: &str,
         count: usize,
     ) -> Result<StreamAutoClaimReply> {
-        let mut connection = self.blocking_connection.clone();
+        let mut connection = self.command_connection.clone();
         connection
             .xautoclaim_options(
                 &self.stream_key,
@@ -239,7 +238,50 @@ impl BackgroundQueue {
         count: usize,
         block_ms: usize,
     ) -> Result<StreamKey> {
-        let mut connection = self.blocking_connection.clone();
+        if block_ms == 0 {
+            let mut connection = self.command_connection.clone();
+            return self
+                .read_group_with_connection(
+                    &mut connection,
+                    consumer_group,
+                    consumer_name,
+                    count,
+                    block_ms,
+                )
+                .await;
+        }
+
+        // Blocking commands must not share a multiplexed connection: each concurrent
+        // ClaimBackgroundJobs call opens its own connection for the duration of XREADGROUP.
+        let response_timeout =
+            Duration::from_millis(block_ms as u64 + BLOCKING_READ_TIMEOUT_SLACK_MS);
+        let config = AsyncConnectionConfig::new().set_response_timeout(Some(response_timeout));
+        let mut connection = self
+            .client
+            .get_multiplexed_async_connection_with_config(&config)
+            .await
+            .map_err(StoreError::Storage)?;
+        self.read_group_with_connection(
+            &mut connection,
+            consumer_group,
+            consumer_name,
+            count,
+            block_ms,
+        )
+        .await
+    }
+
+    async fn read_group_with_connection<C>(
+        &self,
+        connection: &mut C,
+        consumer_group: &str,
+        consumer_name: &str,
+        count: usize,
+        block_ms: usize,
+    ) -> Result<StreamKey>
+    where
+        C: AsyncCommands + Send,
+    {
         let opts = StreamReadOptions::default()
             .group(consumer_group, consumer_name)
             .count(count);

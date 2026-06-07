@@ -1,6 +1,8 @@
 #![allow(clippy::result_large_err)]
 
-use responses_api_store_core::{model::StoredResponse as CoreStoredResponse, StoreError};
+use responses_api_store_core::{
+    model::StoredResponse as CoreStoredResponse, redis_error_kind, StoreError,
+};
 use responses_api_store_proto::v1::{
     BackgroundJob as ProtoBackgroundJob, StoredResponse as ProtoStoredResponse,
 };
@@ -96,11 +98,40 @@ pub fn core_job_to_proto(
     })
 }
 
-pub fn map_store_error(err: StoreError) -> Status {
+pub fn map_store_error(rpc: &'static str, err: StoreError) -> Status {
+    if let StoreError::Storage(ref storage_err) = err {
+        tracing::warn!(
+            rpc,
+            storage_error_kind = redis_error_kind(storage_err),
+            error = %storage_err,
+            "storage operation failed"
+        );
+    }
+    store_error_to_status(err)
+}
+
+pub fn map_claim_store_error(err: StoreError, consumer_group: &str, block_ms: u32) -> Status {
+    if let StoreError::Storage(ref storage_err) = err {
+        tracing::warn!(
+            rpc = "ClaimBackgroundJobs",
+            consumer_group,
+            block_ms,
+            storage_error_kind = redis_error_kind(storage_err),
+            error = %storage_err,
+            "storage operation failed"
+        );
+    }
+    store_error_to_status(err)
+}
+
+fn store_error_to_status(err: StoreError) -> Status {
     match err {
         StoreError::NotFound(id) => Status::not_found(format!("response not found: {id}")),
         StoreError::InvalidArgument(message) => Status::invalid_argument(message),
-        StoreError::Storage(err) => Status::unavailable(format!("storage unavailable: {err}")),
+        StoreError::Storage(err) => {
+            let kind = redis_error_kind(&err);
+            Status::unavailable(format!("storage unavailable ({kind}): {err}"))
+        }
         StoreError::Serialization(message) => Status::internal(message),
     }
 }

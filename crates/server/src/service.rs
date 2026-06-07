@@ -15,7 +15,9 @@ use responses_api_store_proto::v1::{
 };
 use tonic::{Request, Response, Status};
 
-use crate::convert::{core_job_to_proto, core_to_proto, map_store_error, proto_to_core};
+use crate::convert::{
+    core_job_to_proto, core_to_proto, map_claim_store_error, map_store_error, proto_to_core,
+};
 
 const MAX_CLAIM_COUNT: usize = 100;
 
@@ -81,7 +83,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                 self.ttl_from_request(request.ttl_seconds),
             )
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("StoreResponse", err))?;
         Ok(Response::new(StoreResponseResponse {}))
     }
 
@@ -98,7 +100,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             .store
             .get(&request.response_id, request.reconcile_stale)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("GetResponse", err))?;
         Ok(Response::new(GetResponseResponse {
             record: Some(core_to_proto(&request.response_id, &record)?),
         }))
@@ -118,7 +120,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                 self.ttl_from_request(request.ttl_seconds),
             )
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("UpdateResponse", err))?;
         Ok(Response::new(UpdateResponseResponse {}))
     }
 
@@ -136,7 +138,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                 self.store
                     .tombstone_deleted_background(&request.response_id, &stored)
                     .await
-                    .map_err(map_store_error)?;
+                    .map_err(|err| map_store_error("DeleteResponse", err))?;
                 return Ok(Response::new(DeleteResponseResponse {}));
             }
         }
@@ -144,7 +146,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         self.store
             .delete(&request.response_id)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("DeleteResponse", err))?;
         Ok(Response::new(DeleteResponseResponse {}))
     }
 
@@ -160,11 +162,11 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         self.store
             .store(&record.response_id, &core, None)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("EnqueueBackgroundJob", err))?;
         self.queue
             .enqueue(&record.response_id)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("EnqueueBackgroundJob", err))?;
 
         Ok(Response::new(EnqueueBackgroundJobResponse {}))
     }
@@ -182,11 +184,12 @@ impl ResponsesApiStore for ResponsesApiStoreService {
 
         let count = (request.count.max(1) as usize).min(MAX_CLAIM_COUNT);
         let consumer_group = request.consumer_group.clone();
+        let block_ms = request.block_ms;
         let mut cursor = self
             .queue
             .get_autoclaim_cursor(&consumer_group)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("ClaimBackgroundJobs", err))?;
 
         let batch = self
             .queue
@@ -196,13 +199,13 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                     consumer_group: request.consumer_group,
                     consumer_name: request.consumer_name,
                     count,
-                    block_ms: request.block_ms as usize,
+                    block_ms: block_ms as usize,
                     autoclaim_min_idle_ms: request.autoclaim_min_idle_ms as usize,
                 },
                 &mut cursor,
             )
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_claim_store_error(err, &consumer_group, block_ms))?;
 
         if let Err(err) = self
             .queue
@@ -241,7 +244,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         self.queue
             .acknowledge(&request.consumer_group, &request.stream_id)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("AcknowledgeBackgroundJob", err))?;
         Ok(Response::new(AcknowledgeBackgroundJobResponse {}))
     }
 
@@ -262,7 +265,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             .queue
             .ensure_consumer_group(&request.consumer_group, start_id)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("EnsureConsumerGroup", err))?;
         Ok(Response::new(EnsureConsumerGroupResponse { created }))
     }
 
@@ -285,13 +288,13 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             .store
             .get(&request.response_id, false)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("ReconcileStaleResponse", err))?;
         let before = existing.clone();
         let updated = self
             .store
             .reconcile_stale_response(&request.response_id, &existing, stale_seconds)
             .await
-            .map_err(map_store_error)?;
+            .map_err(|err| map_store_error("ReconcileStaleResponse", err))?;
 
         Ok(Response::new(ReconcileStaleResponseResponse {
             record: Some(core_to_proto(&request.response_id, &updated)?),

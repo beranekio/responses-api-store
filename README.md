@@ -41,6 +41,12 @@ Protobuf definition: [`proto/responsesapistore/v1/store.proto`](proto/responsesa
 | `GenerateResponseId` | Allocate a new `resp_*` identifier |
 | `Health` | Report service and Redis connectivity |
 
+### Error semantics
+
+**Missing or deleted responses:** `GetResponse` returns gRPC `NOT_FOUND` with message `response not found: <id>`. The server does not return a successful RPC with an empty `record`. Rust clients should use `responses_api_store_client::is_not_found` to detect absent IDs from either `ClientError::NotFound` or `ClientError::Rpc` with code `NOT_FOUND`. The Go client provides `client.IsNotFound(err)`.
+
+**Storage failures:** Valkey/Redis errors map to gRPC `UNAVAILABLE` with messages like `storage unavailable (timeout): ...`. The `(timeout)`, `(connection_refused)`, `(busy)`, or `(other)` prefix distinguishes common failure modes. Background workers should retry `ClaimBackgroundJobs` on `UNAVAILABLE`. Blocking `XREADGROUP` calls open a dedicated Redis connection per request (not the shared command pool) with a client response timeout of `block_ms + 500ms`, so values above the default 500ms redis-rs timeout work as intended without wedging server tasks indefinitely.
+
 ## Repository layout
 
 ```

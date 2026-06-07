@@ -2,7 +2,7 @@
 
 mod error;
 
-pub use error::{ClientError, Result};
+pub use error::{is_not_found, ClientError, Result};
 pub use responses_api_store_core::{
     build_cancelled_response, build_queued_response, build_upstream_request, generate_response_id,
     is_in_flight_background, response_id_from_value, stored_response_status, BackgroundJob,
