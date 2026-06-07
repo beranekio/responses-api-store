@@ -133,6 +133,12 @@ make helm-smoke
 # or: ./scripts/helm-smoke-kind.sh
 ```
 
+Optional env vars for local debugging:
+
+- `PORT` — local port for `kubectl port-forward` (remote Service port stays `SERVICE_PORT`, default `50051`)
+- `KEEP_CLUSTER=true` — leave the kind cluster running after the script exits
+- `CLUSTER_NAME` — defaults to `responses-api-store-smoke`; the script refuses to run if that cluster already exists (to avoid deleting unrelated workloads)
+
 Requires `kind`, `kubectl`, `helm`, `docker`, and Rust toolchain with `protoc`. CI runs
 this in the `helm-smoke` job (after `docker-build`) via `helm/kind-action@v1`,
 `MANAGE_KIND_CLUSTER=false`, and `SKIP_DOCKER_BUILD=true` so the script reuses the

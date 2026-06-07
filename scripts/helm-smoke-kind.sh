@@ -8,14 +8,18 @@ CLUSTER_NAME="${CLUSTER_NAME:-responses-api-store-smoke}"
 KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-kind-${CLUSTER_NAME}}"
 MANAGE_KIND_CLUSTER="${MANAGE_KIND_CLUSTER:-true}"
 SKIP_DOCKER_BUILD="${SKIP_DOCKER_BUILD:-false}"
+KEEP_CLUSTER="${KEEP_CLUSTER:-false}"
 RELEASE="${RELEASE:-responses-api-store}"
 CHART="${CHART:-charts/responses-api-store}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-responses-api-store}"
 IMAGE_TAG="${IMAGE_TAG:-ci}"
 IMAGE="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
 PORT="${PORT:-50051}"
+SERVICE_PORT="${SERVICE_PORT:-50051}"
 HELM_TIMEOUT="${HELM_TIMEOUT:-10m}"
+CREATED_CLUSTER=false
 PORT_FORWARD_PID=""
+PF_LOG=""
 
 log() {
   printf '==> %s\n' "$*"
@@ -34,7 +38,14 @@ cleanup() {
     kill "${PORT_FORWARD_PID}" 2>/dev/null || true
     wait "${PORT_FORWARD_PID}" 2>/dev/null || true
   fi
-  if [[ "${MANAGE_KIND_CLUSTER}" == "true" ]] && kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+  if [[ -n "${PF_LOG}" && -f "${PF_LOG}" ]]; then
+    rm -f "${PF_LOG}"
+  fi
+  if [[ "${KEEP_CLUSTER}" == "true" ]]; then
+    log "keeping kind cluster ${CLUSTER_NAME} for debugging"
+    return
+  fi
+  if [[ "${CREATED_CLUSTER}" == "true" ]]; then
     log "deleting kind cluster ${CLUSTER_NAME}"
     kind delete cluster --name "${CLUSTER_NAME}"
   fi
@@ -54,8 +65,13 @@ for cmd in kind kubectl helm docker cargo; do
 done
 
 if [[ "${MANAGE_KIND_CLUSTER}" == "true" ]]; then
+  if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+    echo "kind cluster '${CLUSTER_NAME}' already exists; choose a different CLUSTER_NAME or delete it manually" >&2
+    exit 1
+  fi
   log "creating kind cluster ${CLUSTER_NAME}"
   kind create cluster --name "${CLUSTER_NAME}"
+  CREATED_CLUSTER=true
 else
   log "using existing kind cluster ${CLUSTER_NAME} (context ${KUBECTL_CONTEXT})"
 fi
@@ -89,23 +105,24 @@ kubectl --context "${KUBECTL_CONTEXT}" wait --for=condition=ready pod \
   -l "app.kubernetes.io/name=responses-api-store,app.kubernetes.io/instance=${RELEASE}" \
   --timeout=180s
 
-log "port-forwarding svc/${RELEASE} ${PORT}:${PORT}"
-kubectl --context "${KUBECTL_CONTEXT}" port-forward "svc/${RELEASE}" "${PORT}:${PORT}" >/tmp/responses-api-store-port-forward.log 2>&1 &
+PF_LOG="$(mktemp)"
+log "port-forwarding svc/${RELEASE} ${PORT}:${SERVICE_PORT}"
+kubectl --context "${KUBECTL_CONTEXT}" port-forward "svc/${RELEASE}" "${PORT}:${SERVICE_PORT}" >"${PF_LOG}" 2>&1 &
 PORT_FORWARD_PID=$!
 
 log "waiting for local gRPC endpoint"
 for attempt in $(seq 1 60); do
-  if (echo >"/dev/tcp/127.0.0.1/${PORT}") >/dev/null 2>&1; then
-    break
-  fi
   if ! kill -0 "${PORT_FORWARD_PID}" 2>/dev/null; then
-    cat /tmp/responses-api-store-port-forward.log >&2 || true
+    cat "${PF_LOG}" >&2 || true
     dump_cluster_state
     echo "port-forward exited before gRPC became reachable" >&2
     exit 1
   fi
+  if (echo >"/dev/tcp/127.0.0.1/${PORT}") >/dev/null 2>&1; then
+    break
+  fi
   if [[ "${attempt}" -eq 60 ]]; then
-    cat /tmp/responses-api-store-port-forward.log >&2 || true
+    cat "${PF_LOG}" >&2 || true
     dump_cluster_state
     echo "timed out waiting for gRPC on 127.0.0.1:${PORT}" >&2
     exit 1
