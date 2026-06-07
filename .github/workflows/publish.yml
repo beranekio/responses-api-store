@@ -8,9 +8,10 @@ on:
 
 concurrency:
   group: publish-container-image-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
   packages: write
 
@@ -53,7 +54,8 @@ jobs:
           docker tag responses-api-store:ci "${IMAGE}:${GIT_SHA}"
           docker push "${IMAGE}:${GIT_SHA}"
 
-          main_sha="$(git rev-parse HEAD)"
+          git fetch origin main
+          main_sha="$(git rev-parse origin/main)"
           if [ "${GIT_SHA}" = "${main_sha}" ]; then
             docker tag responses-api-store:ci "${IMAGE}:latest"
             docker push "${IMAGE}:latest"
