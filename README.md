@@ -149,8 +149,51 @@ valkey:
 
 **Readiness:** the chart runs `/responses-api-store-probe`, which calls the `Health` RPC and fails when `redis_ok` is false. Liveness remains a TCP check on the gRPC port.
 
+### Install from the repository
+
+For local development, smoke tests, or when iterating on chart templates, install directly from this repository:
+
 ```bash
 helm install responses-api-store ./charts/responses-api-store
+```
+
+### Install from GHCR
+
+Successful pushes to `main` also publish an OCI Helm chart to GHCR (see [`.github/workflows/publish.yml`](.github/workflows/publish.yml)). This is often more convenient than vendoring the chart path: each published version is tied to a validated `main` commit and pins the server image to the matching `ghcr.io/beranekio/responses-api-store:<git-sha>` tag.
+
+Charts are tagged with semver prereleases of the form `0.0.0-<git-sha>` rather than independent release versions for now. Install a specific commit:
+
+```bash
+helm install responses-api-store \
+  oci://ghcr.io/beranekio/charts/responses-api-store \
+  --version 0.0.0-<git-sha>
+```
+
+To track the current `main` head without looking up a SHA manually:
+
+```bash
+SHA="$(git ls-remote https://github.com/beranekio/responses-api-store.git refs/heads/main | cut -f1)"
+helm install responses-api-store \
+  oci://ghcr.io/beranekio/charts/responses-api-store \
+  --version "0.0.0-${SHA}"
+```
+
+Private GHCR packages require registry login before install:
+
+```bash
+echo "${GITHUB_TOKEN}" | helm registry login ghcr.io \
+  --username "<github-username>" \
+  --password-stdin
+```
+
+Parent charts can depend on the OCI chart instead of a local path:
+
+```yaml
+# Chart.yaml
+dependencies:
+  - name: responses-api-store
+    version: "0.0.0-<git-sha>"
+    repository: oci://ghcr.io/beranekio/charts
 ```
 
 Disable bundled Valkey and point at an external Redis-compatible store:
