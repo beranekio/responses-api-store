@@ -70,10 +70,10 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
     steps:
-      - name: Checkout main
+      - name: Checkout validated commit
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
       - name: Set up Helm
@@ -88,18 +88,24 @@ jobs:
 
       - name: Package and push chart tags
         env:
+          CHART_NAME: responses-api-store
           CHART_PATH: charts/responses-api-store
-          CHART_REPO: ghcr.io/${{ github.repository }}-chart
+          CHART_OCI_PREFIX: oci://ghcr.io/${{ github.repository_owner }}/charts
           GIT_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
+          chart_staging="$(mktemp -d)"
+          cp -r "${CHART_PATH}" "${chart_staging}/${CHART_NAME}"
+          yq -i ".image.tag = \"${GIT_SHA}\"" "${chart_staging}/${CHART_NAME}/values.yaml"
+
           chart_version="0.0.0-${GIT_SHA}"
           chart_package="$(
-            helm package "${CHART_PATH}" \
+            helm package "${chart_staging}/${CHART_NAME}" \
               --version "${chart_version}" \
               --app-version "${GIT_SHA}" \
               | awk '{print $NF}'
           )"
 
-          helm push "${chart_package}" "oci://${CHART_REPO}"
+          helm push "${chart_package}" "${CHART_OCI_PREFIX}"
+          echo "Published oci://${CHART_OCI_PREFIX#oci://}/${CHART_NAME}:${chart_version}"
