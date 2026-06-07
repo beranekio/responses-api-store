@@ -1,5 +1,5 @@
-use redis::{AsyncCommands, Script};
-use serde_json::Value;
+use redis::AsyncCommands;
+use serde_json::{json, Value};
 
 use crate::{
     error::{Result, StoreError},
@@ -149,30 +149,82 @@ impl ResponseStore {
         now: i64,
         stale_seconds: i64,
     ) -> Result<StoredResponse> {
-        let mut connection = self.connection.clone();
-        let (reconciled, payload): (i32, String) = Script::new(RECONCILE_STALE_SCRIPT)
-            .key(self.key(response_id))
-            .arg(now)
-            .arg(stale_seconds)
-            .arg(response_id)
-            .arg(self.default_ttl_seconds)
-            .invoke_async(&mut connection)
-            .await
-            .map_err(StoreError::Storage)?;
+        const MAX_ATTEMPTS: u32 = 16;
+        let key = self.key(response_id);
 
-        if payload.is_empty() {
-            return Err(StoreError::NotFound(response_id.to_string()));
+        for attempt in 0..MAX_ATTEMPTS {
+            let mut connection = self.connection.clone();
+            redis::cmd("WATCH")
+                .arg(&key)
+                .query_async::<()>(&mut connection)
+                .await
+                .map_err(StoreError::Storage)?;
+
+            let raw: Option<String> = connection.get(&key).await.map_err(StoreError::Storage)?;
+
+            let Some(raw) = raw else {
+                let _ = redis::cmd("UNWATCH")
+                    .query_async::<()>(&mut connection)
+                    .await;
+                return Err(StoreError::NotFound(response_id.to_string()));
+            };
+
+            let stored: StoredResponse =
+                serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
+
+            if !should_reconcile_stale(&stored)
+                || !is_stale_enqueued(stored.enqueued_at, now, stale_seconds)
+            {
+                let _ = redis::cmd("UNWATCH")
+                    .query_async::<()>(&mut connection)
+                    .await;
+                return Ok(stored);
+            }
+
+            let mut updated = stored;
+            apply_stale_failure(&mut updated, response_id);
+            let payload = serde_json::to_string(&updated)
+                .map_err(|e| StoreError::Serialization(e.to_string()))?;
+
+            let ttl: i64 = connection.ttl(&key).await.map_err(StoreError::Storage)?;
+            let ttl = if ttl <= 0 {
+                self.default_ttl_seconds
+            } else {
+                ttl as u64
+            };
+
+            redis::cmd("MULTI")
+                .query_async::<()>(&mut connection)
+                .await
+                .map_err(StoreError::Storage)?;
+            redis::cmd("SETEX")
+                .arg(&key)
+                .arg(ttl)
+                .arg(&payload)
+                .query_async::<()>(&mut connection)
+                .await
+                .map_err(StoreError::Storage)?;
+
+            let exec_result: Option<Vec<redis::Value>> = redis::cmd("EXEC")
+                .query_async(&mut connection)
+                .await
+                .map_err(StoreError::Storage)?;
+
+            if exec_result.is_some() {
+                tracing::debug!(response_id, "reconciled stale queued background response");
+                return Ok(updated);
+            }
+
+            if attempt + 1 == MAX_ATTEMPTS {
+                break;
+            }
         }
 
-        let updated =
-            serde_json::from_str(&payload).map_err(|e| StoreError::Serialization(e.to_string()))?;
-
-        if reconciled == 0 {
-            return Ok(updated);
-        }
-
-        tracing::debug!(response_id, "reconciled stale queued background response");
-        Ok(updated)
+        let reloaded = self
+            .load(response_id)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(response_id.to_string()))?;
+        Ok(reloaded)
     }
 
     pub async fn tombstone_deleted_background(
@@ -216,70 +268,17 @@ impl ResponseStore {
     }
 }
 
-const RECONCILE_STALE_SCRIPT: &str = r#"
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local stale_seconds = tonumber(ARGV[2])
-local response_id = ARGV[3]
-local default_ttl = tonumber(ARGV[4])
-
-local raw = redis.call('GET', key)
-if not raw then
-  return {0, ''}
-end
-
-local ok, data = pcall(cjson.decode, raw)
-if not ok then
-  return {0, raw}
-end
-
-local response = data['response']
-if type(response) ~= 'table' then
-  return {0, raw}
-end
-
-if response['status'] ~= 'queued' then
-  return {0, raw}
-end
-
-local in_flight = false
-if data['pending_upstream_request'] ~= nil then
-  in_flight = true
-elseif response['status'] == 'queued' or response['status'] == 'in_progress' then
-  in_flight = true
-end
-
-if not in_flight then
-  return {0, raw}
-end
-
-local enqueued_at = tonumber(data['enqueued_at'])
-if enqueued_at == nil then
-  return {0, raw}
-end
-
-if (now - enqueued_at) < stale_seconds then
-  return {0, raw}
-end
-
-data['response'] = {
-  id = response_id,
-  object = 'response',
-  status = 'failed',
-  background = true,
-  error = {
-    message = 'background response stale',
-    type = 'server_error'
-  }
+fn apply_stale_failure(stored: &mut StoredResponse, response_id: &str) {
+    stored.response = json!({
+        "id": response_id,
+        "object": "response",
+        "status": "failed",
+        "background": true,
+        "error": {
+            "message": "background response stale",
+            "type": "server_error"
+        }
+    });
+    stored.pending_upstream_request = None;
+    stored.upstream_authorization = None;
 }
-data['pending_upstream_request'] = cjson.null
-data['upstream_authorization'] = cjson.null
-
-local updated = cjson.encode(data)
-local ttl = redis.call('TTL', key)
-if ttl <= 0 then
-  ttl = default_ttl
-end
-redis.call('SETEX', key, ttl, updated)
-return {1, updated}
-"#;
