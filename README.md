@@ -178,13 +178,29 @@ helm install responses-api-store \
   --version "0.0.0-${SHA}"
 ```
 
-Private GHCR packages require registry login before install:
+**Private GHCR chart:** authenticate your local Helm client before pulling the OCI chart:
 
 ```bash
 echo "${GITHUB_TOKEN}" | helm registry login ghcr.io \
   --username "<github-username>" \
   --password-stdin
 ```
+
+**Private container image:** `helm registry login` does not give cluster nodes credentials to pull `ghcr.io/beranekio/responses-api-store`. If that image package is private, create a pull secret in the target namespace and pass it to the chart:
+
+```bash
+kubectl create secret docker-registry ghcr-responses-api-store \
+  --docker-server=ghcr.io \
+  --docker-username="<github-username>" \
+  --docker-password="${GITHUB_TOKEN}"
+
+helm install responses-api-store \
+  oci://ghcr.io/beranekio/charts/responses-api-store \
+  --version "0.0.0-${SHA}" \
+  --set-json 'imagePullSecrets=[{"name":"ghcr-responses-api-store"}]'
+```
+
+Public chart and image packages (typical for open-source installs) do not require either step.
 
 Parent charts can depend on the OCI chart instead of a local path:
 
