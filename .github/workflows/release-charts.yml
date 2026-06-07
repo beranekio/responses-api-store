@@ -15,13 +15,17 @@ permissions:
 
 jobs:
   release:
-    name: Release Helm chart
+    name: Build chart index
     runs-on: ubuntu-latest
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
     permissions:
       contents: write
+      pages: write
+      id-token: write
+    outputs:
+      pages-ready: ${{ steps.pages.outputs.ready }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -29,12 +33,48 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
 
-      - name: Run chart-releaser
+      - name: Install chart-releaser
         uses: helm/chart-releaser-action@v1.7.0
+        with:
+          install_only: true
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package, upload, and build index
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/release-helm-chart.sh
+
+      - name: Decide whether to publish Pages
+        id: pages
+        run: |
+          if [[ -f pages/index.yaml ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload GitHub Pages artifact
+        if: steps.pages.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+  deploy:
+    name: Deploy Helm chart index to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: release
+    if: needs.release.outputs.pages-ready == 'true'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
