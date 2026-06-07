@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 CLUSTER_NAME="${CLUSTER_NAME:-responses-api-store-smoke}"
 KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-kind-${CLUSTER_NAME}}"
 MANAGE_KIND_CLUSTER="${MANAGE_KIND_CLUSTER:-true}"
+SKIP_DOCKER_BUILD="${SKIP_DOCKER_BUILD:-false}"
 RELEASE="${RELEASE:-responses-api-store}"
 CHART="${CHART:-charts/responses-api-store}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-responses-api-store}"
@@ -59,8 +60,16 @@ else
   log "using existing kind cluster ${CLUSTER_NAME} (context ${KUBECTL_CONTEXT})"
 fi
 
-log "building image ${IMAGE}"
-docker build -t "${IMAGE}" .
+if [[ "${SKIP_DOCKER_BUILD}" == "true" ]]; then
+  log "using pre-built image ${IMAGE}"
+  if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+    echo "pre-built image ${IMAGE} not found locally; build it or unset SKIP_DOCKER_BUILD" >&2
+    exit 1
+  fi
+else
+  log "building image ${IMAGE}"
+  docker build -t "${IMAGE}" .
+fi
 
 log "loading image into kind"
 kind load docker-image --name "${CLUSTER_NAME}" "${IMAGE}"

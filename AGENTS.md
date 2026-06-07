@@ -134,8 +134,9 @@ make helm-smoke
 ```
 
 Requires `kind`, `kubectl`, `helm`, `docker`, and Rust toolchain with `protoc`. CI runs
-this in the `helm-smoke` job via `helm/kind-action@v1` (cluster creation) and
-`MANAGE_KIND_CLUSTER=false` so `scripts/helm-smoke-kind.sh` only deploys and smokes.
+this in the `helm-smoke` job (after `docker-build`) via `helm/kind-action@v1`,
+`MANAGE_KIND_CLUSTER=false`, and `SKIP_DOCKER_BUILD=true` so the script reuses the
+image artifact from the Docker build job.
 
 ### Integration smoke test
 
