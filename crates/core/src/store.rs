@@ -253,7 +253,7 @@ if not in_flight then
   return {0, raw}
 end
 
-local enqueued_at = data['enqueued_at']
+local enqueued_at = tonumber(data['enqueued_at'])
 if enqueued_at == nil then
   return {0, raw}
 end
@@ -277,7 +277,7 @@ data['upstream_authorization'] = cjson.null
 
 local updated = cjson.encode(data)
 local ttl = redis.call('TTL', key)
-if ttl < 0 then
+if ttl <= 0 then
   ttl = default_ttl
 end
 redis.call('SETEX', key, ttl, updated)

@@ -204,10 +204,17 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             .await
             .map_err(map_store_error)?;
 
-        self.queue
+        if let Err(err) = self
+            .queue
             .set_autoclaim_cursor(&consumer_group, &cursor)
             .await
-            .map_err(map_store_error)?;
+        {
+            tracing::warn!(
+                consumer_group,
+                error = %err,
+                "failed to persist autoclaim cursor; returning claimed batch"
+            );
+        }
 
         let jobs = batch
             .jobs

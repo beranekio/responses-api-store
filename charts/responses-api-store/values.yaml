@@ -18,8 +18,8 @@ podLabels: {}
 
 service:
   type: ClusterIP
-  # Defaults to grpc.port when unset.
-  port: 50051
+  # Inherits grpc.port when null. Set explicitly to override Service port only.
+  port: null
 
 grpc:
   # Canonical gRPC port; containerPort and GRPC_LISTEN_ADDR derive from this unless overridden.

@@ -6,7 +6,7 @@ use redis::{
         StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamKey, StreamMaxlen,
         StreamReadOptions, StreamReadReply,
     },
-    AsyncCommands, RedisError, RedisResult,
+    AsyncCommands, RedisError, RedisResult, Script,
 };
 use tokio::time::sleep;
 
@@ -110,8 +110,10 @@ impl BackgroundQueue {
     pub async fn set_autoclaim_cursor(&self, consumer_group: &str, cursor: &str) -> Result<()> {
         let mut connection = self.command_connection.clone();
         let key = autoclaim_cursor_key(&self.stream_key, consumer_group);
-        connection
-            .set::<_, _, ()>(&key, cursor)
+        let _: i32 = Script::new(AUTOCLAIM_CURSOR_SCRIPT)
+            .key(key)
+            .arg(cursor)
+            .invoke_async(&mut connection)
             .await
             .map_err(StoreError::Storage)?;
         Ok(())
@@ -144,7 +146,8 @@ impl BackgroundQueue {
             result.pending_stream_ids.extend(batch.pending_stream_ids);
         }
 
-        let remaining = options.count.saturating_sub(result.jobs.len());
+        let claimed = result.jobs.len() + result.pending_stream_ids.len();
+        let remaining = options.count.saturating_sub(claimed);
         if remaining > 0 {
             let read = self
                 .read_group(
@@ -317,3 +320,25 @@ impl BackgroundQueue {
 fn is_busygroup(err: &RedisError) -> bool {
     err.to_string().contains("BUSYGROUP")
 }
+
+const AUTOCLAIM_CURSOR_SCRIPT: &str = r#"
+local key = KEYS[1]
+local new_cursor = ARGV[1]
+local old_cursor = redis.call('GET', key)
+if not old_cursor then
+  redis.call('SET', key, new_cursor)
+  return 1
+end
+local function split_id(id)
+  local dash = id:find('-')
+  if not dash then return tonumber(id), 0 end
+  return tonumber(id:sub(1, dash - 1)), tonumber(id:sub(dash + 1))
+end
+local new_ms, new_seq = split_id(new_cursor)
+local old_ms, old_seq = split_id(old_cursor)
+if new_ms > old_ms or (new_ms == old_ms and new_seq > old_seq) then
+  redis.call('SET', key, new_cursor)
+  return 1
+end
+return 0
+"#;
