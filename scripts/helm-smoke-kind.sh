@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 CLUSTER_NAME="${CLUSTER_NAME:-responses-api-store-smoke}"
+KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-kind-${CLUSTER_NAME}}"
+MANAGE_KIND_CLUSTER="${MANAGE_KIND_CLUSTER:-true}"
 RELEASE="${RELEASE:-responses-api-store}"
 CHART="${CHART:-charts/responses-api-store}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-responses-api-store}"
@@ -31,7 +33,7 @@ cleanup() {
     kill "${PORT_FORWARD_PID}" 2>/dev/null || true
     wait "${PORT_FORWARD_PID}" 2>/dev/null || true
   fi
-  if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+  if [[ "${MANAGE_KIND_CLUSTER}" == "true" ]] && kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
     log "deleting kind cluster ${CLUSTER_NAME}"
     kind delete cluster --name "${CLUSTER_NAME}"
   fi
@@ -50,8 +52,12 @@ for cmd in kind kubectl helm docker cargo; do
   require_cmd "$cmd"
 done
 
-log "creating kind cluster ${CLUSTER_NAME}"
-kind create cluster --name "${CLUSTER_NAME}"
+if [[ "${MANAGE_KIND_CLUSTER}" == "true" ]]; then
+  log "creating kind cluster ${CLUSTER_NAME}"
+  kind create cluster --name "${CLUSTER_NAME}"
+else
+  log "using existing kind cluster ${CLUSTER_NAME} (context ${KUBECTL_CONTEXT})"
+fi
 
 log "building image ${IMAGE}"
 docker build -t "${IMAGE}" .
@@ -61,7 +67,7 @@ kind load docker-image --name "${CLUSTER_NAME}" "${IMAGE}"
 
 log "installing Helm release ${RELEASE}"
 helm upgrade --install "${RELEASE}" "${CHART}" \
-  --kube-context "kind-${CLUSTER_NAME}" \
+  --kube-context "${KUBECTL_CONTEXT}" \
   --namespace default \
   --set "image.repository=${IMAGE_REPOSITORY}" \
   --set "image.tag=${IMAGE_TAG}" \
@@ -70,12 +76,12 @@ helm upgrade --install "${RELEASE}" "${CHART}" \
   --timeout "${HELM_TIMEOUT}"
 
 log "waiting for responses-api-store pod"
-kubectl --context "kind-${CLUSTER_NAME}" wait --for=condition=ready pod \
+kubectl --context "${KUBECTL_CONTEXT}" wait --for=condition=ready pod \
   -l "app.kubernetes.io/name=responses-api-store,app.kubernetes.io/instance=${RELEASE}" \
   --timeout=180s
 
 log "port-forwarding svc/${RELEASE} ${PORT}:${PORT}"
-kubectl --context "kind-${CLUSTER_NAME}" port-forward "svc/${RELEASE}" "${PORT}:${PORT}" >/tmp/responses-api-store-port-forward.log 2>&1 &
+kubectl --context "${KUBECTL_CONTEXT}" port-forward "svc/${RELEASE}" "${PORT}:${PORT}" >/tmp/responses-api-store-port-forward.log 2>&1 &
 PORT_FORWARD_PID=$!
 
 log "waiting for local gRPC endpoint"
