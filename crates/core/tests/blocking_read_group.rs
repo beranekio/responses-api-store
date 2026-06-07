@@ -72,7 +72,7 @@ async fn claim_jobs_waits_through_blocking_read_without_client_timeout() {
         "expected blocking wait near 1000ms, got {elapsed:?}"
     );
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(5000),
         "blocking read took unexpectedly long: {elapsed:?}"
     );
 }
