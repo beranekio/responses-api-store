@@ -6,6 +6,10 @@ on:
     types: [completed]
     branches: [main]
 
+concurrency:
+  group: publish-container-image-main
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
@@ -18,6 +22,12 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
     steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+
       - name: Download image artifact
         uses: actions/download-artifact@v8
         with:
@@ -40,7 +50,13 @@ jobs:
           IMAGE: ghcr.io/${{ github.repository }}
           GIT_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          docker tag responses-api-store:ci "${IMAGE}:latest"
           docker tag responses-api-store:ci "${IMAGE}:${GIT_SHA}"
-          docker push "${IMAGE}:latest"
           docker push "${IMAGE}:${GIT_SHA}"
+
+          main_sha="$(git rev-parse HEAD)"
+          if [ "${GIT_SHA}" = "${main_sha}" ]; then
+            docker tag responses-api-store:ci "${IMAGE}:latest"
+            docker push "${IMAGE}:latest"
+          else
+            echo "Skipping latest tag: ${GIT_SHA} is no longer main head (${main_sha})"
+          fi
