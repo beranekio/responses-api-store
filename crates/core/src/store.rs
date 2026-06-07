@@ -174,9 +174,7 @@ impl ResponseStore {
             let raw: Option<String> = connection.get(&key).await.map_err(StoreError::Storage)?;
 
             let Some(raw) = raw else {
-                let _ = redis::cmd("UNWATCH")
-                    .query_async::<()>(connection)
-                    .await;
+                let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
                 return Err(StoreError::NotFound(response_id.to_string()));
             };
 
@@ -186,9 +184,7 @@ impl ResponseStore {
             if !should_reconcile_stale(&stored)
                 || !is_stale_enqueued(stored.enqueued_at, now, stale_seconds)
             {
-                let _ = redis::cmd("UNWATCH")
-                    .query_async::<()>(connection)
-                    .await;
+                let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
                 return Ok(stored);
             }
 
