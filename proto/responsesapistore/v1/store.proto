@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package responsesapistore.v1;
+
+option go_package = "github.com/beranekio/responses-api-store/sdk/go/responsesapistore/v1;responsesapistorev1";
+
+// gRPC service for storing OpenAI Responses API objects, tracking request state,
+// and distributing background jobs to workers.
+service ResponsesApiStore {
+  // Response persistence
+  rpc StoreResponse(StoreResponseRequest) returns (StoreResponseResponse);
+  rpc GetResponse(GetResponseRequest) returns (GetResponseResponse);
+  rpc UpdateResponse(UpdateResponseRequest) returns (UpdateResponseResponse);
+  rpc DeleteResponse(DeleteResponseRequest) returns (DeleteResponseResponse);
+
+  // Background job lifecycle
+  rpc EnqueueBackgroundJob(EnqueueBackgroundJobRequest) returns (EnqueueBackgroundJobResponse);
+  rpc ClaimBackgroundJobs(ClaimBackgroundJobsRequest) returns (ClaimBackgroundJobsResponse);
+  rpc AcknowledgeBackgroundJob(AcknowledgeBackgroundJobRequest) returns (AcknowledgeBackgroundJobResponse);
+  rpc EnsureConsumerGroup(EnsureConsumerGroupRequest) returns (EnsureConsumerGroupResponse);
+
+  // Maintenance and utilities
+  rpc ReconcileStaleResponse(ReconcileStaleResponseRequest) returns (ReconcileStaleResponseResponse);
+  rpc GenerateResponseId(GenerateResponseIdRequest) returns (GenerateResponseIdResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// StoredResponse mirrors the gateway-owned record used by Responses API compatible services.
+message StoredResponse {
+  string response_id = 1;
+  string upstream = 2;
+  // OpenAI-compatible response object JSON.
+  string response_json = 3;
+  // Materialized conversation input items as JSON strings.
+  repeated string input_json = 4;
+  // Upstream request body retained for background workers.
+  optional string pending_upstream_request_json = 5;
+  optional string upstream_authorization = 6;
+  // Unix timestamp (seconds) when the job was enqueued.
+  optional int64 enqueued_at = 7;
+}
+
+message StoreResponseRequest {
+  StoredResponse record = 1;
+  // TTL override in seconds; zero uses server default.
+  uint64 ttl_seconds = 2;
+}
+
+message StoreResponseResponse {}
+
+message GetResponseRequest {
+  string response_id = 1;
+  // When true, stale queued background responses may be reconciled to failed.
+  bool reconcile_stale = 2;
+}
+
+message GetResponseResponse {
+  StoredResponse record = 1;
+}
+
+message UpdateResponseRequest {
+  StoredResponse record = 1;
+  uint64 ttl_seconds = 2;
+}
+
+message UpdateResponseResponse {}
+
+message DeleteResponseRequest {
+  string response_id = 1;
+}
+
+message DeleteResponseResponse {}
+
+message EnqueueBackgroundJobRequest {
+  StoredResponse record = 1;
+}
+
+message EnqueueBackgroundJobResponse {}
+
+message ClaimBackgroundJobsRequest {
+  string consumer_group = 1;
+  string consumer_name = 2;
+  // Maximum jobs to return in one call.
+  uint32 count = 3;
+  // Block up to this many milliseconds waiting for new jobs (0 = no block).
+  uint32 block_ms = 4;
+  // Reclaim jobs idle longer than this many milliseconds via XAUTOCLAIM.
+  uint32 autoclaim_min_idle_ms = 5;
+}
+
+message BackgroundJob {
+  string stream_id = 1;
+  string response_id = 2;
+  StoredResponse record = 3;
+  // True when the job was reclaimed from another consumer.
+  bool autoclaimed = 4;
+  // Idle time in milliseconds when autoclaimed.
+  optional uint64 idle_ms = 5;
+}
+
+message ClaimBackgroundJobsResponse {
+  repeated BackgroundJob jobs = 1;
+}
+
+message AcknowledgeBackgroundJobRequest {
+  string stream_id = 1;
+  string consumer_group = 2;
+}
+
+message AcknowledgeBackgroundJobResponse {}
+
+message EnsureConsumerGroupRequest {
+  string consumer_group = 1;
+  // Stream ID to start reading from when creating the group ("0-0" or "$").
+  string start_id = 2;
+}
+
+message EnsureConsumerGroupResponse {
+  bool created = 1;
+}
+
+message ReconcileStaleResponseRequest {
+  string response_id = 1;
+  int64 stale_seconds = 2;
+}
+
+message ReconcileStaleResponseResponse {
+  StoredResponse record = 1;
+  bool reconciled = 2;
+}
+
+message GenerateResponseIdRequest {}
+
+message GenerateResponseIdResponse {
+  string response_id = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool redis_ok = 1;
+  string version = 2;
+}

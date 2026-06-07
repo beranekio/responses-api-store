@@ -1,0 +1,16 @@
+[package]
+name = "responses-api-store-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust client SDK for the Responses API store gRPC service"
+
+[dependencies]
+responses-api-store-core = { path = "../core" }
+responses-api-store-proto = { path = "../proto" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }

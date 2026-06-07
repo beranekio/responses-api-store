@@ -1,0 +1,58 @@
+{{- if .Values.valkey.enabled }}
+{{/* Ephemeral dev-only Valkey: no PVC and persistence disabled via --save/--appendonly below. */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "responses-api-store.fullname" . }}-valkey
+  labels:
+    {{- include "responses-api-store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "responses-api-store.name" . }}-valkey
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "responses-api-store.name" . }}-valkey
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: valkey
+          image: "{{ .Values.valkey.image.repository }}:{{ .Values.valkey.image.tag }}"
+          imagePullPolicy: {{ .Values.valkey.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.valkey.service.port }}
+          args:
+            - "--save"
+            - ""
+            - "--appendonly"
+            - "no"
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.valkey.service.port }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.valkey.service.port }}
+          resources:
+            {{- toYaml .Values.valkey.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "responses-api-store.fullname" . }}-valkey
+  labels:
+    {{- include "responses-api-store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "responses-api-store.name" . }}-valkey
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: redis
+      port: {{ .Values.valkey.service.port }}
+      targetPort: {{ .Values.valkey.service.port }}
+{{- end }}
