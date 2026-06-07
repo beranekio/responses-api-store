@@ -10,5 +10,5 @@ spec:
     {{- include "responses-api-store.selectorLabels" . | nindent 4 }}
   ports:
     - name: grpc
-      port: {{ .Values.service.port }}
+      port: {{ include "responses-api-store.servicePort" . }}
       targetPort: grpc

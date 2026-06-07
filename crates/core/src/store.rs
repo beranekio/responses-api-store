@@ -1,5 +1,8 @@
-use redis::AsyncCommands;
-use serde_json::Value;
+use std::sync::Arc;
+
+use redis::{aio::ConnectionManager, AsyncCommands};
+use serde_json::{json, Value};
+use tokio::sync::Mutex;
 
 use crate::{
     error::{Result, StoreError},
@@ -11,7 +14,10 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ResponseStore {
-    connection: redis::aio::ConnectionManager,
+    connection: ConnectionManager,
+    redis_client: redis::Client,
+    /// Exclusive reconnecting connection for WATCH/MULTI/EXEC; must not be cloned outside the mutex.
+    transaction_connection: Arc<Mutex<ConnectionManager>>,
     key_prefix: String,
     default_ttl_seconds: u64,
     stale_seconds: i64,
@@ -25,11 +31,16 @@ impl ResponseStore {
         stale_seconds: i64,
     ) -> Result<Self> {
         let client = redis::Client::open(redis_url).map_err(StoreError::Storage)?;
-        let connection = redis::aio::ConnectionManager::new(client)
+        let connection = ConnectionManager::new(client.clone())
+            .await
+            .map_err(StoreError::Storage)?;
+        let transaction_connection = ConnectionManager::new(client.clone())
             .await
             .map_err(StoreError::Storage)?;
         Ok(Self {
             connection,
+            redis_client: client,
+            transaction_connection: Arc::new(Mutex::new(transaction_connection)),
             key_prefix,
             default_ttl_seconds,
             stale_seconds,
@@ -139,33 +150,60 @@ impl ResponseStore {
             return Ok(stored.clone());
         }
 
-        let current = match self.load(response_id).await? {
-            Some(current) => current,
-            None => return Err(StoreError::NotFound(response_id.to_string())),
-        };
+        self.reconcile_stale_atomic(response_id, now, stale_seconds)
+            .await
+    }
 
-        if !should_reconcile_stale(&current)
-            || !is_stale_enqueued(current.enqueued_at, now, stale_seconds)
-        {
-            return Ok(current);
+    async fn reconcile_stale_atomic(
+        &self,
+        response_id: &str,
+        now: i64,
+        stale_seconds: i64,
+    ) -> Result<StoredResponse> {
+        const MAX_ATTEMPTS: u32 = 16;
+        let key = self.key(response_id);
+
+        for attempt in 0..MAX_ATTEMPTS {
+            let attempt_result = {
+                let mut guard = self.transaction_connection.lock().await;
+                discard_open_transaction(&mut guard).await;
+                self.reconcile_stale_transaction_attempt(
+                    &mut guard,
+                    &key,
+                    response_id,
+                    now,
+                    stale_seconds,
+                )
+                .await
+            };
+
+            match attempt_result {
+                Ok(Some(updated)) => return Ok(updated),
+                Ok(None) => {
+                    if attempt + 1 == MAX_ATTEMPTS {
+                        break;
+                    }
+                }
+                Err(StoreError::Storage(err)) => {
+                    tracing::warn!(
+                        response_id,
+                        error = %err,
+                        "stale reconcile transaction failed; resetting dedicated connection"
+                    );
+                    self.reset_transaction_connection().await?;
+                    if attempt + 1 == MAX_ATTEMPTS {
+                        return Err(StoreError::Storage(err));
+                    }
+                }
+                Err(err) => return Err(err),
+            }
         }
 
-        let mut updated = current;
-        updated.response = serde_json::json!({
-            "id": response_id,
-            "object": "response",
-            "status": "failed",
-            "background": true,
-            "error": {
-                "message": "background response stale",
-                "type": "server_error"
-            }
-        });
-        updated.pending_upstream_request = None;
-        updated.upstream_authorization = None;
-
-        self.store(response_id, &updated, None).await?;
-        Ok(updated)
+        let reloaded = self
+            .load(response_id)
+            .await?
+            .ok_or_else(|| StoreError::NotFound(response_id.to_string()))?;
+        Ok(reloaded)
     }
 
     pub async fn tombstone_deleted_background(
@@ -206,5 +244,126 @@ impl ResponseStore {
 
     fn key(&self, response_id: &str) -> String {
         response_store_key(&self.key_prefix, response_id)
+    }
+
+    async fn reset_transaction_connection(&self) -> Result<()> {
+        let connection = ConnectionManager::new(self.redis_client.clone())
+            .await
+            .map_err(StoreError::Storage)?;
+        let mut guard = self.transaction_connection.lock().await;
+        *guard = connection;
+        Ok(())
+    }
+
+    async fn reconcile_stale_transaction_attempt(
+        &self,
+        connection: &mut ConnectionManager,
+        key: &str,
+        response_id: &str,
+        now: i64,
+        stale_seconds: i64,
+    ) -> Result<Option<StoredResponse>> {
+        redis::cmd("WATCH")
+            .arg(key)
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        let raw: Option<String> = connection.get(key).await.map_err(StoreError::Storage)?;
+
+        let Some(raw) = raw else {
+            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            return Err(StoreError::NotFound(response_id.to_string()));
+        };
+
+        let stored: StoredResponse =
+            serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
+
+        if !should_reconcile_stale(&stored)
+            || !is_stale_enqueued(stored.enqueued_at, now, stale_seconds)
+        {
+            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            return Ok(Some(stored));
+        }
+
+        let mut updated = stored;
+        apply_stale_failure(&mut updated, response_id);
+        let payload = serde_json::to_string(&updated)
+            .map_err(|e| StoreError::Serialization(e.to_string()))?;
+
+        let ttl: i64 = connection.ttl(key).await.map_err(StoreError::Storage)?;
+        let ttl = reconcile_write_ttl(ttl, self.default_ttl_seconds);
+
+        redis::cmd("MULTI")
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+        redis::cmd("SETEX")
+            .arg(key)
+            .arg(ttl)
+            .arg(&payload)
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        let exec_result: Option<Vec<redis::Value>> = redis::cmd("EXEC")
+            .query_async(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        if exec_result.is_some() {
+            tracing::debug!(response_id, "reconciled stale queued background response");
+            return Ok(Some(updated));
+        }
+
+        Ok(None)
+    }
+}
+
+async fn discard_open_transaction(connection: &mut ConnectionManager) {
+    let _ = redis::cmd("DISCARD").query_async::<()>(connection).await;
+}
+
+fn reconcile_write_ttl(redis_ttl: i64, default_ttl_seconds: u64) -> u64 {
+    match redis_ttl {
+        0 => 1,
+        -1 => default_ttl_seconds,
+        t if t > 0 => t as u64,
+        _ => default_ttl_seconds,
+    }
+}
+
+fn apply_stale_failure(stored: &mut StoredResponse, response_id: &str) {
+    stored.response = json!({
+        "id": response_id,
+        "object": "response",
+        "status": "failed",
+        "background": true,
+        "error": {
+            "message": "background response stale",
+            "type": "server_error"
+        }
+    });
+    stored.pending_upstream_request = None;
+    stored.upstream_authorization = None;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reconcile_write_ttl;
+
+    #[test]
+    fn reconcile_write_ttl_preserves_positive_remaining_ttl() {
+        assert_eq!(reconcile_write_ttl(300, 86_400), 300);
+    }
+
+    #[test]
+    fn reconcile_write_ttl_uses_minimal_ttl_when_expiring_imminently() {
+        assert_eq!(reconcile_write_ttl(0, 86_400), 1);
+    }
+
+    #[test]
+    fn reconcile_write_ttl_applies_default_when_key_has_no_expiry() {
+        assert_eq!(reconcile_write_ttl(-1, 86_400), 86_400);
     }
 }

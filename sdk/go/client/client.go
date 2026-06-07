@@ -140,18 +140,24 @@ func (c *Client) EnqueueBackgroundJob(ctx context.Context, responseID string, re
 	return err
 }
 
+// ClaimBackgroundJobsResult is the outcome of a background job claim batch.
+type ClaimBackgroundJobsResult struct {
+	Jobs             []BackgroundJob
+	PendingStreamIDs []string
+}
+
 // ClaimBackgroundJobs claims one or more jobs from the background queue.
-func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroundJobsRequest) ([]BackgroundJob, error) {
+func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroundJobsRequest) (ClaimBackgroundJobsResult, error) {
 	resp, err := c.client.ClaimBackgroundJobs(ctx, req)
 	if err != nil {
-		return nil, err
+		return ClaimBackgroundJobsResult{}, err
 	}
 
 	jobs := make([]BackgroundJob, 0, len(resp.GetJobs()))
 	for _, job := range resp.GetJobs() {
 		record, err := fromProtoRecord(job.GetRecord())
 		if err != nil {
-			return nil, err
+			return ClaimBackgroundJobsResult{}, err
 		}
 		jobs = append(jobs, BackgroundJob{
 			StreamID:    job.GetStreamId(),
@@ -161,7 +167,10 @@ func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroun
 			IdleMS:      job.IdleMs,
 		})
 	}
-	return jobs, nil
+	return ClaimBackgroundJobsResult{
+		Jobs:             jobs,
+		PendingStreamIDs: resp.GetPendingStreamIds(),
+	}, nil
 }
 
 // AcknowledgeBackgroundJob acknowledges successful processing of a queue message.

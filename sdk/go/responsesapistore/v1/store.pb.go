@@ -710,10 +710,13 @@ func (x *BackgroundJob) GetIdleMs() uint64 {
 }
 
 type ClaimBackgroundJobsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Jobs          []*BackgroundJob       `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Jobs  []*BackgroundJob       `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
+	// Stream IDs claimed from Redis but not hydrated (e.g. transient load errors).
+	// Entries remain in the consumer group PEL until acknowledged or autoclaimed.
+	PendingStreamIds []string `protobuf:"bytes,2,rep,name=pending_stream_ids,json=pendingStreamIds,proto3" json:"pending_stream_ids,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ClaimBackgroundJobsResponse) Reset() {
@@ -749,6 +752,13 @@ func (*ClaimBackgroundJobsResponse) Descriptor() ([]byte, []int) {
 func (x *ClaimBackgroundJobsResponse) GetJobs() []*BackgroundJob {
 	if x != nil {
 		return x.Jobs
+	}
+	return nil
+}
+
+func (x *ClaimBackgroundJobsResponse) GetPendingStreamIds() []string {
+	if x != nil {
+		return x.PendingStreamIds
 	}
 	return nil
 }
@@ -1266,9 +1276,10 @@ const file_responsesapistore_v1_store_proto_rawDesc = "" +
 	"\vautoclaimed\x18\x04 \x01(\bR\vautoclaimed\x12\x1c\n" +
 	"\aidle_ms\x18\x05 \x01(\x04H\x00R\x06idleMs\x88\x01\x01B\n" +
 	"\n" +
-	"\b_idle_ms\"V\n" +
+	"\b_idle_ms\"\x84\x01\n" +
 	"\x1bClaimBackgroundJobsResponse\x127\n" +
-	"\x04jobs\x18\x01 \x03(\v2#.responsesapistore.v1.BackgroundJobR\x04jobs\"e\n" +
+	"\x04jobs\x18\x01 \x03(\v2#.responsesapistore.v1.BackgroundJobR\x04jobs\x12,\n" +
+	"\x12pending_stream_ids\x18\x02 \x03(\tR\x10pendingStreamIds\"e\n" +
 	"\x1fAcknowledgeBackgroundJobRequest\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12%\n" +
 	"\x0econsumer_group\x18\x02 \x01(\tR\rconsumerGroup\"\"\n" +

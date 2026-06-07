@@ -28,10 +28,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: grpc
-              containerPort: {{ .Values.service.port }}
+              containerPort: {{ include "responses-api-store.grpcPort" . }}
           env:
             - name: GRPC_LISTEN_ADDR
-              value: {{ .Values.grpc.listenAddr | quote }}
+              value: {{ include "responses-api-store.grpcListenAddr" . | quote }}
             - name: GRPC_MAX_MESSAGE_BYTES
               value: {{ printf "%d" (int .Values.grpc.maxMessageBytes) | quote }}
             - name: RESPONSE_ID_STORE_URL

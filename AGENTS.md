@@ -25,6 +25,7 @@ It is intended as a shared dependency for Kubernetes-deployed services such as [
 | `sdk/go/` | Generated Go protobuf stubs and hand-written client wrapper |
 | `scripts/generate-go.sh` | Regenerate Go code from `proto/` |
 | `charts/responses-api-store/` | Helm subchart (server + optional bundled Valkey) |
+| `crates/probe` | Kubernetes readiness probe binary (`responses-api-store-probe`) |
 | `Dockerfile` | Multi-stage build: `rust:1-bookworm` builder, `gcr.io/distroless/cc-debian12:nonroot` runtime |
 
 ## Data model
@@ -180,7 +181,10 @@ The subchart's optional Valkey deployment is **ephemeral by design** (no PVC; `-
 When wiring this service into `duihua-ai-services`:
 
 - Gateway should call gRPC instead of direct Valkey access for store/queue operations.
-- Background worker should claim and acknowledge jobs via `ClaimBackgroundJobs` / `AcknowledgeBackgroundJob`.
+- Background worker should claim and acknowledge jobs via `ClaimBackgroundJobs` / `AcknowledgeBackgroundJob`. When `ClaimBackgroundJobs` returns `pending_stream_ids`, entries remain in the consumer group PEL until acked or autoclaimed; workers may ack on permanent failure paths.
+- Autoclaim scan cursors are stored in Redis (`{stream_key}:meta:autoclaim:{consumer_group}`), so multiple server replicas share progress.
+- Stale reconciliation uses a Redis Lua compare-and-set: only `queued` records with a stale `enqueued_at` are marked `failed`.
+- Helm: `grpc.port` keeps listener and Service ports aligned; readiness uses `responses-api-store-probe` (distroless image includes the binary).
 - Helm parent charts can depend on `charts/responses-api-store` as a subchart or reference an external deployment.
 - Preserve compatibility with existing `StoredResponse` JSON shape and Redis key/stream naming conventions during migration.
 

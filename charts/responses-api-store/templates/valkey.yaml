@@ -1,5 +1,23 @@
 {{- if .Values.valkey.enabled }}
-{{/* Ephemeral dev-only Valkey: no PVC and persistence disabled via --save/--appendonly below. */}}
+{{- if .Values.valkey.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "responses-api-store.fullname" . }}-valkey
+  labels:
+    {{- include "responses-api-store.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  accessModes:
+    - {{ .Values.valkey.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.valkey.persistence.size }}
+  {{- if .Values.valkey.persistence.storageClass }}
+  storageClassName: {{ .Values.valkey.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,6 +27,10 @@ metadata:
     app.kubernetes.io/component: valkey
 spec:
   replicas: 1
+  {{- if .Values.valkey.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "responses-api-store.name" . }}-valkey
@@ -25,11 +47,25 @@ spec:
           imagePullPolicy: {{ .Values.valkey.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.valkey.service.port }}
+          {{- if .Values.valkey.persistence.enabled }}
+          args:
+            - "--save"
+            - "900"
+            - "1"
+            - "--appendonly"
+            - "yes"
+            - "--appendfsync"
+            - "everysec"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- else }}
           args:
             - "--save"
             - ""
             - "--appendonly"
             - "no"
+          {{- end }}
           readinessProbe:
             tcpSocket:
               port: {{ .Values.valkey.service.port }}
@@ -38,6 +74,12 @@ spec:
               port: {{ .Values.valkey.service.port }}
           resources:
             {{- toYaml .Values.valkey.resources | nindent 12 }}
+      {{- if .Values.valkey.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "responses-api-store.fullname" . }}-valkey
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

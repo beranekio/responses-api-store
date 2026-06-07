@@ -41,6 +41,31 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{- define "responses-api-store.grpcPort" -}}
+{{- if .Values.grpc.listenAddr -}}
+{{- $parts := splitList ":" .Values.grpc.listenAddr -}}
+{{- last $parts | int -}}
+{{- else -}}
+{{- .Values.grpc.port | int -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "responses-api-store.grpcListenAddr" -}}
+{{- if .Values.grpc.listenAddr -}}
+{{- .Values.grpc.listenAddr -}}
+{{- else -}}
+{{- printf "0.0.0.0:%d" (int .Values.grpc.port) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "responses-api-store.servicePort" -}}
+{{- if .Values.service.port -}}
+{{- .Values.service.port | int -}}
+{{- else -}}
+{{- include "responses-api-store.grpcPort" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "responses-api-store.redisUrl" -}}
 {{- if .Values.redis.url -}}
 {{- .Values.redis.url -}}
