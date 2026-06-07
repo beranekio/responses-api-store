@@ -1,4 +1,4 @@
-name: Publish container image
+name: Publish
 
 on:
   workflow_run:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: publish-container-image-main
+  group: publish-main
   cancel-in-progress: false
 
 permissions:
@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 jobs:
-  publish:
+  publish-image:
     name: Publish container image
     runs-on: ubuntu-latest
     if: >
@@ -62,3 +62,44 @@ jobs:
           else
             echo "Skipping latest tag: ${GIT_SHA} is no longer main head (${main_sha})"
           fi
+
+  publish-chart:
+    name: Publish Helm chart
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package and push chart tags
+        env:
+          CHART_PATH: charts/responses-api-store
+          CHART_REPO: ghcr.io/${{ github.repository }}-chart
+          GIT_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          chart_version="0.0.0-${GIT_SHA}"
+          chart_package="$(
+            helm package "${CHART_PATH}" \
+              --version "${chart_version}" \
+              --app-version "${GIT_SHA}" \
+              | awk '{print $NF}'
+          )"
+
+          helm push "${chart_package}" "oci://${CHART_REPO}"
