@@ -6,8 +6,8 @@ export PATH="${PATH}:${HOME}/go/bin}"
 
 install_plugins() {
   # Pin plugin versions so generation stays reproducible across Go toolchains.
-  go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.5
-  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+  go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
 }
 
 generate_proto() {
