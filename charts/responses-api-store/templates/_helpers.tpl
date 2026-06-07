@@ -42,7 +42,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "responses-api-store.grpcPort" -}}
+{{- if .Values.grpc.listenAddr -}}
+{{- $parts := splitList ":" .Values.grpc.listenAddr -}}
+{{- last $parts | int -}}
+{{- else -}}
 {{- .Values.grpc.port | int -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "responses-api-store.grpcListenAddr" -}}

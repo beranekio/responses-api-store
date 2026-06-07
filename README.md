@@ -145,7 +145,7 @@ valkey:
     size: 1Gi
 ```
 
-**gRPC port alignment:** set `grpc.port` (default `50051`) as the canonical listener port. The chart derives `containerPort`, Service port, and `GRPC_LISTEN_ADDR` (`0.0.0.0:<port>`) from it unless `grpc.listenAddr` or `service.port` is set explicitly.
+**gRPC port alignment:** set `grpc.port` (default `50051`) as the canonical listener port. The chart derives `containerPort`, Service port, and `GRPC_LISTEN_ADDR` (`0.0.0.0:<port>`) from it unless `grpc.listenAddr` or `service.port` is set explicitly. When `grpc.listenAddr` includes a port, that port is also used for `containerPort` and the Service.
 
 **Readiness:** the chart runs `/responses-api-store-probe`, which calls the `Health` RPC and fails when `redis_ok` is false. Liveness remains a TCP check on the gRPC port.
 

@@ -149,19 +149,43 @@ impl BackgroundQueue {
         let claimed = result.jobs.len() + result.pending_stream_ids.len();
         let remaining = options.count.saturating_sub(claimed);
         if remaining > 0 {
-            let read = self
+            let read = match self
                 .read_group(
                     &options.consumer_group,
                     &options.consumer_name,
                     remaining,
                     options.block_ms,
                 )
-                .await?;
-            let batch = self
+                .await
+            {
+                Ok(read) => read,
+                Err(err) if has_claimed_entries(&result) => {
+                    tracing::warn!(
+                        consumer_group = options.consumer_group,
+                        error = %err,
+                        "failed follow-up XREADGROUP; returning partial autoclaim batch"
+                    );
+                    return Ok(result);
+                }
+                Err(err) => return Err(err),
+            };
+            match self
                 .jobs_from_stream_ids(store, &options.consumer_group, &read.ids, false)
-                .await?;
-            result.jobs.extend(batch.jobs);
-            result.pending_stream_ids.extend(batch.pending_stream_ids);
+                .await
+            {
+                Ok(batch) => {
+                    result.jobs.extend(batch.jobs);
+                    result.pending_stream_ids.extend(batch.pending_stream_ids);
+                }
+                Err(err) if has_claimed_entries(&result) => {
+                    tracing::warn!(
+                        consumer_group = options.consumer_group,
+                        error = %err,
+                        "failed hydrating follow-up XREADGROUP batch; returning partial autoclaim batch"
+                    );
+                }
+                Err(err) => return Err(err),
+            }
         }
 
         Ok(result)
@@ -317,6 +341,10 @@ impl BackgroundQueue {
     }
 }
 
+fn has_claimed_entries(result: &ClaimBatchResult) -> bool {
+    !result.jobs.is_empty() || !result.pending_stream_ids.is_empty()
+}
+
 fn is_busygroup(err: &RedisError) -> bool {
     err.to_string().contains("BUSYGROUP")
 }
@@ -324,6 +352,10 @@ fn is_busygroup(err: &RedisError) -> bool {
 const AUTOCLAIM_CURSOR_SCRIPT: &str = r#"
 local key = KEYS[1]
 local new_cursor = ARGV[1]
+if new_cursor == '0-0' then
+  redis.call('SET', key, new_cursor)
+  return 1
+end
 local old_cursor = redis.call('GET', key)
 if not old_cursor then
   redis.call('SET', key, new_cursor)
