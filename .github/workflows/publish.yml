@@ -66,6 +66,7 @@ jobs:
   publish-chart:
     name: Publish Helm chart
     runs-on: ubuntu-latest
+    needs: publish-image
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
@@ -91,13 +92,16 @@ jobs:
           CHART_NAME: responses-api-store
           CHART_PATH: charts/responses-api-store
           CHART_OCI_PREFIX: oci://ghcr.io/${{ github.repository_owner }}/charts
+          IMAGE: ghcr.io/${{ github.repository }}
           GIT_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
           chart_staging="$(mktemp -d)"
           cp -r "${CHART_PATH}" "${chart_staging}/${CHART_NAME}"
-          yq -i ".image.tag = \"${GIT_SHA}\"" "${chart_staging}/${CHART_NAME}/values.yaml"
+          yq -i \
+            ".image.repository = \"${IMAGE}\" | .image.tag = \"${GIT_SHA}\"" \
+            "${chart_staging}/${CHART_NAME}/values.yaml"
 
           chart_version="0.0.0-${GIT_SHA}"
           chart_package="$(
