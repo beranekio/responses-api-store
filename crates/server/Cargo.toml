@@ -1,0 +1,21 @@
+[package]
+name = "responses-api-store-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "gRPC server for the Responses API store"
+
+[[bin]]
+name = "responses-api-store"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+responses-api-store-core = { path = "../core" }
+responses-api-store-proto = { path = "../proto" }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

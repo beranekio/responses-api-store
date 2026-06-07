@@ -1,0 +1,76 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/beranekio/responses-api-store
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+service:
+  type: ClusterIP
+  port: 50051
+
+grpc:
+  listenAddr: "0.0.0.0:50051"
+
+store:
+  keyPrefix: responses-api-store:responses
+  ttlSeconds: 86400
+  staleSeconds: 3600
+
+backgroundQueue:
+  streamKey: responses-api-store:background
+
+# Use external Redis/Valkey when valkey.enabled=false.
+redis:
+  url: ""
+
+valkey:
+  enabled: true
+  image:
+    repository: valkey/valkey
+    tag: "8.0"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+livenessProbe:
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 5
+  periodSeconds: 20
+
+readinessProbe:
+  tcpSocket:
+    port: grpc
+  initialDelaySeconds: 3
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

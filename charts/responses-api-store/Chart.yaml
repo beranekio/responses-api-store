@@ -1,0 +1,12 @@
+apiVersion: v2
+name: responses-api-store
+description: gRPC service for storing OpenAI Responses API objects and background job distribution
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - responses-api
+  - grpc
+  - openai
+maintainers:
+  - name: beranekio

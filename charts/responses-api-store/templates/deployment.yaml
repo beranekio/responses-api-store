@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "responses-api-store.fullname" . }}
+  labels:
+    {{- include "responses-api-store.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "responses-api-store.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "responses-api-store.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "responses-api-store.serviceAccountName" . }}
+      containers:
+        - name: responses-api-store
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.port }}
+          env:
+            - name: GRPC_LISTEN_ADDR
+              value: {{ .Values.grpc.listenAddr | quote }}
+            - name: RESPONSE_ID_STORE_URL
+              value: {{ include "responses-api-store.redisUrl" . | quote }}
+            - name: RESPONSE_ID_STORE_KEY_PREFIX
+              value: {{ .Values.store.keyPrefix | quote }}
+            - name: RESPONSE_ID_STORE_TTL_SECONDS
+              value: {{ .Values.store.ttlSeconds | quote }}
+            - name: BACKGROUND_RESPONSE_STALE_SECONDS
+              value: {{ .Values.store.staleSeconds | quote }}
+            - name: BACKGROUND_QUEUE_STREAM_KEY
+              value: {{ .Values.backgroundQueue.streamKey | quote }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,175 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache cargo artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+  go:
+    name: Go checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: sdk/go/go.mod
+          cache-dependency-path: sdk/go/go.sum
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install protobuf plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Verify generated Go protobuf
+        run: |
+          export PATH="${PATH}:${HOME}/go/bin"
+          ./scripts/generate-go.sh
+          git diff --exit-code sdk/go
+
+      - name: Run Go tests
+        working-directory: sdk/go
+        run: go test ./...
+
+  helm:
+    name: Helm chart validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Lint chart
+        run: helm lint charts/responses-api-store
+
+      - name: Render templates
+        run: helm template responses-api-store charts/responses-api-store --debug > /tmp/helm-rendered.yaml
+
+  dockerfile:
+    name: Dockerfile lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: Dockerfile
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: responses-api-store:ci
+
+  integration:
+    name: Integration smoke test
+    runs-on: ubuntu-latest
+    services:
+      valkey:
+        image: valkey/valkey:8.0
+        ports:
+          - 6379:6379
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache cargo artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build server and smoke example
+        run: |
+          cargo build -p responses-api-store-server
+          cargo build -p responses-api-store-client --example smoke
+
+      - name: Start gRPC server
+        run: |
+          RESPONSE_ID_STORE_URL=redis://127.0.0.1:6379 \
+          GRPC_LISTEN_ADDR=127.0.0.1:50051 \
+          cargo run -p responses-api-store-server &
+
+      - name: Wait for server
+        run: |
+          for attempt in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/50051) >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server failed to become ready" >&2
+          exit 1
+
+      - name: Run smoke test
+        run: cargo run -p responses-api-store-client --example smoke
+        env:
+          STORE_ENDPOINT: http://127.0.0.1:50051
