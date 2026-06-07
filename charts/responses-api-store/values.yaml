@@ -5,10 +5,6 @@ image:
   tag: "latest"
   pullPolicy: Always
 
-# Pull secrets for private registries (for example ghcr.io). Each entry is a
-# Secret name in the release namespace.
-imagePullSecrets: []
-
 nameOverride: ""
 fullnameOverride: ""
 
