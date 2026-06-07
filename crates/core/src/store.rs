@@ -292,11 +292,7 @@ impl ResponseStore {
             .map_err(|e| StoreError::Serialization(e.to_string()))?;
 
         let ttl: i64 = connection.ttl(key).await.map_err(StoreError::Storage)?;
-        let ttl = if ttl <= 0 {
-            self.default_ttl_seconds
-        } else {
-            ttl as u64
-        };
+        let ttl = reconcile_write_ttl(ttl, self.default_ttl_seconds);
 
         redis::cmd("MULTI")
             .query_async::<()>(connection)
@@ -328,6 +324,15 @@ async fn discard_open_transaction(connection: &mut ConnectionManager) {
     let _ = redis::cmd("DISCARD").query_async::<()>(connection).await;
 }
 
+fn reconcile_write_ttl(redis_ttl: i64, default_ttl_seconds: u64) -> u64 {
+    match redis_ttl {
+        0 => 1,
+        -1 => default_ttl_seconds,
+        t if t > 0 => t as u64,
+        _ => default_ttl_seconds,
+    }
+}
+
 fn apply_stale_failure(stored: &mut StoredResponse, response_id: &str) {
     stored.response = json!({
         "id": response_id,
@@ -341,4 +346,24 @@ fn apply_stale_failure(stored: &mut StoredResponse, response_id: &str) {
     });
     stored.pending_upstream_request = None;
     stored.upstream_authorization = None;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reconcile_write_ttl;
+
+    #[test]
+    fn reconcile_write_ttl_preserves_positive_remaining_ttl() {
+        assert_eq!(reconcile_write_ttl(300, 86_400), 300);
+    }
+
+    #[test]
+    fn reconcile_write_ttl_uses_minimal_ttl_when_expiring_imminently() {
+        assert_eq!(reconcile_write_ttl(0, 86_400), 1);
+    }
+
+    #[test]
+    fn reconcile_write_ttl_applies_default_when_key_has_no_expiry() {
+        assert_eq!(reconcile_write_ttl(-1, 86_400), 86_400);
+    }
 }
