@@ -236,3 +236,42 @@ jobs:
 
       - name: Run Helm kind smoke test
         run: ./scripts/helm-smoke-kind.sh
+
+  publish:
+    name: Publish container image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - rust
+      - go
+      - helm
+      - dockerfile
+      - integration
+      - helm-smoke
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: responses-api-store-ci-image
+
+      - name: Load image
+        run: docker load -i responses-api-store-ci.tar
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image tags
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          docker tag responses-api-store:ci "${IMAGE}:latest"
+          docker tag responses-api-store:ci "${IMAGE}:${GITHUB_SHA}"
+          docker push "${IMAGE}:latest"
+          docker push "${IMAGE}:${GITHUB_SHA}"
