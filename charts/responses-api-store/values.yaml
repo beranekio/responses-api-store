@@ -30,6 +30,7 @@ store:
 
 backgroundQueue:
   streamKey: responses-api-store:background
+  streamMaxlen: 10000
 
 # Use external Redis/Valkey when valkey.enabled=false.
 redis:

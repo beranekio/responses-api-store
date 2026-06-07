@@ -1,10 +1,10 @@
 #![allow(clippy::result_large_err)]
 
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 use responses_api_store_core::{
-    generate_response_id, is_in_flight_background, BackgroundQueue, ClaimOptions, ResponseStore,
-    StoreConfig, StoreError,
+    generate_response_id, is_in_flight_background, unix_seconds_now, BackgroundQueue, ClaimOptions,
+    ResponseStore, StoreConfig, StoreError,
 };
 use responses_api_store_proto::v1::{
     responses_api_store_server::ResponsesApiStore, AcknowledgeBackgroundJobRequest,
@@ -15,15 +15,18 @@ use responses_api_store_proto::v1::{
     HealthRequest, HealthResponse, ReconcileStaleResponseRequest, ReconcileStaleResponseResponse,
     StoreResponseRequest, StoreResponseResponse, UpdateResponseRequest, UpdateResponseResponse,
 };
+use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 use crate::convert::{core_job_to_proto, core_to_proto, map_store_error, proto_to_core};
+
+const MAX_CLAIM_COUNT: usize = 100;
 
 pub struct ResponsesApiStoreService {
     store: ResponseStore,
     queue: BackgroundQueue,
     default_stale_seconds: i64,
-    autoclaim_cursor: Arc<Mutex<String>>,
+    autoclaim_cursors: Mutex<HashMap<String, String>>,
 }
 
 impl ResponsesApiStoreService {
@@ -35,12 +38,17 @@ impl ResponsesApiStoreService {
             config.stale_seconds,
         )
         .await?;
-        let queue = BackgroundQueue::connect(&config.redis_url, config.stream_key.clone()).await?;
+        let queue = BackgroundQueue::connect(
+            &config.redis_url,
+            config.stream_key.clone(),
+            config.stream_maxlen,
+        )
+        .await?;
         Ok(Self {
             store,
             queue,
             default_stale_seconds: config.stale_seconds,
-            autoclaim_cursor: Arc::new(Mutex::new("0-0".to_string())),
+            autoclaim_cursors: Mutex::new(HashMap::new()),
         })
     }
 
@@ -109,7 +117,7 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         let record = Self::require_record(&request.record)?;
         let core = proto_to_core(record)?;
         self.store
-            .store(
+            .update(
                 &record.response_id,
                 &core,
                 self.ttl_from_request(request.ttl_seconds),
@@ -151,16 +159,17 @@ impl ResponsesApiStore for ResponsesApiStoreService {
     ) -> Result<Response<EnqueueBackgroundJobResponse>, Status> {
         let request = request.into_inner();
         let record = Self::require_record(&request.record)?;
-        let core = proto_to_core(record)?;
+        let mut core = proto_to_core(record)?;
+        core.enqueued_at = Some(unix_seconds_now());
 
         self.store
             .store(&record.response_id, &core, None)
             .await
             .map_err(map_store_error)?;
-        if let Err(err) = self.queue.enqueue(&record.response_id).await {
-            let _ = self.store.delete(&record.response_id).await;
-            return Err(map_store_error(err));
-        }
+        self.queue
+            .enqueue(&record.response_id)
+            .await
+            .map_err(map_store_error)?;
 
         Ok(Response::new(EnqueueBackgroundJobResponse {}))
     }
@@ -176,14 +185,12 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             ));
         }
 
-        let count = request.count.max(1) as usize;
-        let mut cursor = {
-            let guard = self
-                .autoclaim_cursor
-                .lock()
-                .map_err(|_| Status::internal("autoclaim cursor lock poisoned"))?;
-            guard.clone()
-        };
+        let count = (request.count.max(1) as usize).min(MAX_CLAIM_COUNT);
+        let mut cursors = self.autoclaim_cursors.lock().await;
+        let cursor = cursors
+            .entry(request.consumer_group.clone())
+            .or_insert_with(|| "0-0".to_string());
+
         let jobs = self
             .queue
             .claim_jobs(
@@ -195,13 +202,10 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                     block_ms: request.block_ms as usize,
                     autoclaim_min_idle_ms: request.autoclaim_min_idle_ms as usize,
                 },
-                &mut cursor,
+                cursor,
             )
             .await
             .map_err(map_store_error)?;
-        if let Ok(mut guard) = self.autoclaim_cursor.lock() {
-            *guard = cursor;
-        }
 
         let jobs = jobs
             .into_iter()

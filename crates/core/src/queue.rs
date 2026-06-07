@@ -1,7 +1,8 @@
 use redis::{
+    aio::ConnectionManager,
     streams::{
-        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamKey, StreamReadOptions,
-        StreamReadReply,
+        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamKey, StreamMaxlen,
+        StreamReadOptions, StreamReadReply,
     },
     AsyncCommands, RedisError, RedisResult,
 };
@@ -14,8 +15,10 @@ use crate::{
 
 #[derive(Clone)]
 pub struct BackgroundQueue {
-    connection: redis::aio::MultiplexedConnection,
+    command_connection: ConnectionManager,
+    blocking_connection: ConnectionManager,
     stream_key: String,
+    stream_maxlen: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -28,24 +31,44 @@ pub struct ClaimOptions {
 }
 
 impl BackgroundQueue {
-    pub async fn connect(redis_url: &str, stream_key: String) -> Result<Self> {
+    pub async fn connect(
+        redis_url: &str,
+        stream_key: String,
+        stream_maxlen: usize,
+    ) -> Result<Self> {
         let client = redis::Client::open(redis_url).map_err(StoreError::Storage)?;
-        let connection = client
-            .get_multiplexed_async_connection()
+        let command_connection = ConnectionManager::new(client.clone())
+            .await
+            .map_err(StoreError::Storage)?;
+        let blocking_connection = ConnectionManager::new(client)
             .await
             .map_err(StoreError::Storage)?;
         Ok(Self {
-            connection,
+            command_connection,
+            blocking_connection,
             stream_key,
+            stream_maxlen,
         })
     }
 
     pub async fn enqueue(&self, response_id: &str) -> Result<()> {
-        let mut connection = self.connection.clone();
-        connection
-            .xadd::<_, _, _, _, ()>(&self.stream_key, "*", &[("response_id", response_id)])
-            .await
-            .map_err(StoreError::Storage)?;
+        let mut connection = self.command_connection.clone();
+        if self.stream_maxlen > 0 {
+            connection
+                .xadd_maxlen::<_, _, _, _, ()>(
+                    &self.stream_key,
+                    StreamMaxlen::Approx(self.stream_maxlen),
+                    "*",
+                    &[("response_id", response_id)],
+                )
+                .await
+                .map_err(StoreError::Storage)?;
+        } else {
+            connection
+                .xadd::<_, _, _, _, ()>(&self.stream_key, "*", &[("response_id", response_id)])
+                .await
+                .map_err(StoreError::Storage)?;
+        }
         Ok(())
     }
 
@@ -54,7 +77,7 @@ impl BackgroundQueue {
         consumer_group: &str,
         start_id: &str,
     ) -> Result<bool> {
-        let mut connection = self.connection.clone();
+        let mut connection = self.command_connection.clone();
         let result: RedisResult<()> = connection
             .xgroup_create_mkstream(&self.stream_key, consumer_group, start_id)
             .await;
@@ -74,13 +97,14 @@ impl BackgroundQueue {
         let mut jobs = Vec::new();
 
         if options.autoclaim_min_idle_ms > 0 && options.count > 0 {
+            let autoclaim_count = options.count;
             let autoclaim = self
                 .autoclaim(
                     &options.consumer_group,
                     &options.consumer_name,
                     options.autoclaim_min_idle_ms,
                     autoclaim_cursor,
-                    1,
+                    autoclaim_count,
                 )
                 .await?;
             *autoclaim_cursor = autoclaim.next_stream_id;
@@ -110,9 +134,19 @@ impl BackgroundQueue {
     }
 
     pub async fn acknowledge(&self, consumer_group: &str, stream_id: &str) -> Result<()> {
-        let mut connection = self.connection.clone();
+        let mut connection = self.command_connection.clone();
+        let acked: i32 = connection
+            .xack(&self.stream_key, consumer_group, &[stream_id])
+            .await
+            .map_err(StoreError::Storage)?;
+        if acked == 0 {
+            return Err(StoreError::InvalidArgument(format!(
+                "stream entry {stream_id} was not acknowledged for consumer group {consumer_group}"
+            )));
+        }
+
         connection
-            .xack::<_, _, _, ()>(&self.stream_key, consumer_group, &[stream_id])
+            .xdel::<_, _, ()>(&self.stream_key, &[stream_id])
             .await
             .map_err(StoreError::Storage)?;
         Ok(())
@@ -126,7 +160,7 @@ impl BackgroundQueue {
         cursor: &str,
         count: usize,
     ) -> Result<StreamAutoClaimReply> {
-        let mut connection = self.connection.clone();
+        let mut connection = self.blocking_connection.clone();
         connection
             .xautoclaim_options(
                 &self.stream_key,
@@ -147,7 +181,7 @@ impl BackgroundQueue {
         count: usize,
         block_ms: usize,
     ) -> Result<StreamKey> {
-        let mut connection = self.connection.clone();
+        let mut connection = self.blocking_connection.clone();
         let opts = StreamReadOptions::default()
             .group(consumer_group, consumer_name)
             .count(count);
@@ -185,13 +219,26 @@ impl BackgroundQueue {
                 Some(value) => value,
                 None => continue,
             };
-            let record = match store.load(&response_id).await? {
-                Some(record) => record,
-                None => {
+
+            let record = match store.load(&response_id).await {
+                Ok(Some(record)) => record,
+                Ok(None) => {
                     let _ = self.acknowledge(consumer_group, &entry.id).await;
                     continue;
                 }
+                Err(StoreError::Serialization(err)) => {
+                    tracing::warn!(
+                        response_id,
+                        stream_id = entry.id,
+                        error = %err,
+                        "skipping stream entry with corrupted stored response"
+                    );
+                    let _ = self.acknowledge(consumer_group, &entry.id).await;
+                    continue;
+                }
+                Err(err) => return Err(err),
             };
+
             jobs.push(BackgroundJob {
                 stream_id: entry.id.clone(),
                 response_id,

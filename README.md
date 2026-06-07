@@ -63,6 +63,7 @@ charts/responses-api-store/    # Helm subchart
 | `RESPONSE_ID_STORE_KEY_PREFIX` | `responses-api-store:responses` | Key prefix for stored responses |
 | `RESPONSE_ID_STORE_TTL_SECONDS` | `86400` | Default TTL for stored responses |
 | `BACKGROUND_QUEUE_STREAM_KEY` | `responses-api-store:background` | Redis stream key for background jobs |
+| `BACKGROUND_QUEUE_STREAM_MAXLEN` | `10000` | Approximate max stream length (`XADD MAXLEN ~`); `0` disables trimming |
 | `BACKGROUND_RESPONSE_STALE_SECONDS` | `3600` | Stale threshold for queued background responses |
 
 ## CI

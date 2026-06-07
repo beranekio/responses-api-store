@@ -46,6 +46,10 @@ pub fn stored_response_status(stored: &StoredResponse) -> Option<&str> {
     stored.response.get("status").and_then(Value::as_str)
 }
 
+pub fn is_deleted_tombstone(stored: &StoredResponse) -> bool {
+    stored_response_status(stored) == Some("deleted")
+}
+
 pub fn is_in_flight_background(stored: &StoredResponse) -> bool {
     stored.pending_upstream_request.is_some()
         || matches!(
@@ -143,5 +147,25 @@ mod tests {
             enqueued_at: None,
         };
         assert!(is_in_flight_background(&queued));
+    }
+
+    #[test]
+    fn detects_deleted_tombstone() {
+        let deleted = StoredResponse {
+            upstream: "http://model".to_string(),
+            response: json!({"status": "deleted", "background": true, "deleted": true}),
+            input: vec![],
+            pending_upstream_request: None,
+            upstream_authorization: None,
+            enqueued_at: None,
+        };
+        assert!(is_deleted_tombstone(&deleted));
+    }
+
+    #[test]
+    fn detects_stale_enqueued_responses() {
+        assert!(!is_stale_enqueued(None, 1000, 60));
+        assert!(!is_stale_enqueued(Some(950), 1000, 60));
+        assert!(is_stale_enqueued(Some(900), 1000, 60));
     }
 }

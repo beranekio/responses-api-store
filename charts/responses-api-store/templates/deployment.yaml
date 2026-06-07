@@ -42,6 +42,8 @@ spec:
               value: {{ .Values.store.staleSeconds | quote }}
             - name: BACKGROUND_QUEUE_STREAM_KEY
               value: {{ .Values.backgroundQueue.streamKey | quote }}
+            - name: BACKGROUND_QUEUE_STREAM_MAXLEN
+              value: {{ .Values.backgroundQueue.streamMaxlen | quote }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

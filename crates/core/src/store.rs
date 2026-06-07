@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::{
     error::{Result, StoreError},
     model::{
-        is_stale_enqueued, response_store_key, should_reconcile_stale, stored_response_status,
+        is_deleted_tombstone, is_stale_enqueued, response_store_key, should_reconcile_stale,
         unix_seconds_now, StoredResponse,
     },
 };
@@ -87,7 +87,7 @@ impl ResponseStore {
             return Err(StoreError::NotFound(response_id.to_string()));
         };
 
-        if stored_response_status(&stored) == Some("deleted") {
+        if is_deleted_tombstone(&stored) {
             return Err(StoreError::NotFound(response_id.to_string()));
         }
 
@@ -98,6 +98,21 @@ impl ResponseStore {
         }
 
         Ok(stored)
+    }
+
+    pub async fn update(
+        &self,
+        response_id: &str,
+        response: &StoredResponse,
+        ttl_seconds: Option<u64>,
+    ) -> Result<()> {
+        let Some(existing) = self.load(response_id).await? else {
+            return Err(StoreError::NotFound(response_id.to_string()));
+        };
+        if is_deleted_tombstone(&existing) {
+            return Err(StoreError::NotFound(response_id.to_string()));
+        }
+        self.store(response_id, response, ttl_seconds).await
     }
 
     pub async fn delete(&self, response_id: &str) -> Result<()> {
@@ -124,7 +139,18 @@ impl ResponseStore {
             return Ok(stored.clone());
         }
 
-        let mut updated = stored.clone();
+        let current = match self.load(response_id).await? {
+            Some(current) => current,
+            None => return Err(StoreError::NotFound(response_id.to_string())),
+        };
+
+        if !should_reconcile_stale(&current)
+            || !is_stale_enqueued(current.enqueued_at, now, stale_seconds)
+        {
+            return Ok(current);
+        }
+
+        let mut updated = current;
         updated.response = serde_json::json!({
             "id": response_id,
             "object": "response",

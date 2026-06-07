@@ -51,6 +51,7 @@ Key environment variables (server defaults align with duihua-ai-services naming)
 | `RESPONSE_ID_STORE_KEY_PREFIX` | `responses-api-store:responses` | Response key prefix |
 | `RESPONSE_ID_STORE_TTL_SECONDS` | `86400` | Stored response TTL |
 | `BACKGROUND_QUEUE_STREAM_KEY` | `responses-api-store:background` | Background job stream |
+| `BACKGROUND_QUEUE_STREAM_MAXLEN` | `10000` | Approximate max stream length on enqueue (`0` disables trimming) |
 | `BACKGROUND_RESPONSE_STALE_SECONDS` | `3600` | Stale queued job threshold |
 
 ## Recommended workflow
