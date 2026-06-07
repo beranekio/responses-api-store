@@ -115,7 +115,7 @@ impl BackgroundQueue {
         }
 
         let remaining = options.count.saturating_sub(jobs.len());
-        if remaining > 0 {
+        if remaining > 0 && jobs.is_empty() {
             let read = self
                 .read_group(
                     &options.consumer_group,
@@ -144,11 +144,6 @@ impl BackgroundQueue {
                 "stream entry {stream_id} was not acknowledged for consumer group {consumer_group}"
             )));
         }
-
-        connection
-            .xdel::<_, _, ()>(&self.stream_key, &[stream_id])
-            .await
-            .map_err(StoreError::Storage)?;
         Ok(())
     }
 

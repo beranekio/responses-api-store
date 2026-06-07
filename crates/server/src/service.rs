@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use responses_api_store_core::{
     generate_response_id, is_in_flight_background, unix_seconds_now, BackgroundQueue, ClaimOptions,
@@ -26,7 +26,7 @@ pub struct ResponsesApiStoreService {
     store: ResponseStore,
     queue: BackgroundQueue,
     default_stale_seconds: i64,
-    autoclaim_cursors: Mutex<HashMap<String, String>>,
+    autoclaim_cursors: Mutex<HashMap<String, Arc<Mutex<String>>>>,
 }
 
 impl ResponsesApiStoreService {
@@ -186,10 +186,18 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         }
 
         let count = (request.count.max(1) as usize).min(MAX_CLAIM_COUNT);
-        let mut cursors = self.autoclaim_cursors.lock().await;
-        let cursor = cursors
-            .entry(request.consumer_group.clone())
-            .or_insert_with(|| "0-0".to_string());
+        let group_cursor = {
+            let mut cursors = self.autoclaim_cursors.lock().await;
+            cursors
+                .entry(request.consumer_group.clone())
+                .or_insert_with(|| Arc::new(Mutex::new("0-0".to_string())))
+                .clone()
+        };
+
+        let mut cursor = {
+            let guard = group_cursor.lock().await;
+            guard.clone()
+        };
 
         let jobs = self
             .queue
@@ -202,10 +210,15 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                     block_ms: request.block_ms as usize,
                     autoclaim_min_idle_ms: request.autoclaim_min_idle_ms as usize,
                 },
-                cursor,
+                &mut cursor,
             )
             .await
             .map_err(map_store_error)?;
+
+        {
+            let mut guard = group_cursor.lock().await;
+            *guard = cursor;
+        }
 
         let jobs = jobs
             .into_iter()

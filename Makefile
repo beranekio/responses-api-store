@@ -14,6 +14,7 @@ clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
 
 ci: fmt-check clippy test generate-go helm-lint
+	git diff --exit-code sdk/go
 	cd sdk/go && go test ./...
 
 generate-go:
