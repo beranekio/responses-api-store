@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use redis::{
-    aio::ConnectionManager,
+    aio::{ConnectionManager, ConnectionManagerConfig},
     streams::{
         StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamKey, StreamMaxlen,
         StreamReadOptions, StreamReadReply,
@@ -52,7 +52,9 @@ impl BackgroundQueue {
         let command_connection = ConnectionManager::new(client.clone())
             .await
             .map_err(StoreError::Storage)?;
-        let blocking_connection = ConnectionManager::new(client)
+        // Blocking XREADGROUP may wait longer than redis-rs's default 500ms response timeout.
+        let blocking_config = ConnectionManagerConfig::new().set_response_timeout(None);
+        let blocking_connection = ConnectionManager::new_with_config(client, blocking_config)
             .await
             .map_err(StoreError::Storage)?;
         Ok(Self {

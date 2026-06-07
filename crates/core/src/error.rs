@@ -1,5 +1,18 @@
 use thiserror::Error;
 
+/// Classifies a Redis error for logging and gRPC status messages.
+pub fn redis_error_kind(err: &redis::RedisError) -> &'static str {
+    if err.is_timeout() {
+        "timeout"
+    } else if err.is_connection_refusal() {
+        "connection_refused"
+    } else if err.to_string().contains("BUSY") {
+        "busy"
+    } else {
+        "other"
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("response not found: {0}")]
