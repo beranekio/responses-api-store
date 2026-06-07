@@ -1,4 +1,4 @@
-.PHONY: build test fmt-check clippy generate-go docker helm-lint smoke ci
+.PHONY: build test fmt-check clippy generate-go docker helm-lint helm-smoke smoke ci
 
 build:
 	cargo build --workspace --release
@@ -25,6 +25,9 @@ docker:
 
 helm-lint:
 	helm lint charts/responses-api-store
+
+helm-smoke:
+	./scripts/helm-smoke-kind.sh
 
 smoke:
 	cargo run -p responses-api-store-client --example smoke

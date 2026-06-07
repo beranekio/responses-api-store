@@ -76,6 +76,7 @@ GitHub Actions workflow [`.github/workflows/validate.yml`](.github/workflows/val
 - Helm chart lint and template rendering
 - Dockerfile lint (hadolint) and image build
 - Integration smoke test against a Valkey service container
+- Helm chart smoke test on kind (chart install + Rust smoke example)
 
 Run the same checks locally:
 

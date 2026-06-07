@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+CLUSTER_NAME="${CLUSTER_NAME:-responses-api-store-smoke}"
+KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-kind-${CLUSTER_NAME}}"
+MANAGE_KIND_CLUSTER="${MANAGE_KIND_CLUSTER:-true}"
+SKIP_DOCKER_BUILD="${SKIP_DOCKER_BUILD:-false}"
+KEEP_CLUSTER="${KEEP_CLUSTER:-false}"
+RELEASE="${RELEASE:-responses-api-store}"
+CHART="${CHART:-charts/responses-api-store}"
+IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-responses-api-store}"
+IMAGE_TAG="${IMAGE_TAG:-ci}"
+IMAGE="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+PORT="${PORT:-50051}"
+SERVICE_PORT="${SERVICE_PORT:-50051}"
+HELM_TIMEOUT="${HELM_TIMEOUT:-10m}"
+CREATED_CLUSTER=false
+PORT_FORWARD_PID=""
+PF_LOG=""
+
+log() {
+  printf '==> %s\n' "$*"
+}
+
+dump_cluster_state() {
+  log "cluster state (release=${RELEASE})"
+  kubectl get pods,svc,deploy -l "app.kubernetes.io/instance=${RELEASE}" -o wide 2>/dev/null || true
+  kubectl describe pods -l "app.kubernetes.io/instance=${RELEASE}" 2>/dev/null || true
+  kubectl logs -l "app.kubernetes.io/name=responses-api-store,app.kubernetes.io/instance=${RELEASE}" --tail=200 2>/dev/null || true
+  kubectl logs -l "app.kubernetes.io/name=responses-api-store-valkey,app.kubernetes.io/instance=${RELEASE}" --tail=200 2>/dev/null || true
+}
+
+cleanup() {
+  if [[ -n "${PORT_FORWARD_PID}" ]]; then
+    kill "${PORT_FORWARD_PID}" 2>/dev/null || true
+    wait "${PORT_FORWARD_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${PF_LOG}" && -f "${PF_LOG}" ]]; then
+    rm -f "${PF_LOG}"
+  fi
+  if [[ "${KEEP_CLUSTER}" == "true" ]]; then
+    log "keeping kind cluster ${CLUSTER_NAME} for debugging"
+    return
+  fi
+  if [[ "${CREATED_CLUSTER}" == "true" ]]; then
+    log "deleting kind cluster ${CLUSTER_NAME}"
+    kind delete cluster --name "${CLUSTER_NAME}"
+  fi
+}
+
+trap cleanup EXIT
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+for cmd in kind kubectl helm docker cargo; do
+  require_cmd "$cmd"
+done
+
+if [[ "${MANAGE_KIND_CLUSTER}" == "true" ]]; then
+  if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+    echo "kind cluster '${CLUSTER_NAME}' already exists; choose a different CLUSTER_NAME or delete it manually" >&2
+    exit 1
+  fi
+  log "creating kind cluster ${CLUSTER_NAME}"
+  kind create cluster --name "${CLUSTER_NAME}"
+  CREATED_CLUSTER=true
+else
+  log "using existing kind cluster ${CLUSTER_NAME} (context ${KUBECTL_CONTEXT})"
+fi
+
+if [[ "${SKIP_DOCKER_BUILD}" == "true" ]]; then
+  log "using pre-built image ${IMAGE}"
+  if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+    echo "pre-built image ${IMAGE} not found locally; build it or unset SKIP_DOCKER_BUILD" >&2
+    exit 1
+  fi
+else
+  log "building image ${IMAGE}"
+  docker build -t "${IMAGE}" .
+fi
+
+log "loading image into kind"
+kind load docker-image --name "${CLUSTER_NAME}" "${IMAGE}"
+
+log "installing Helm release ${RELEASE}"
+helm upgrade --install "${RELEASE}" "${CHART}" \
+  --kube-context "${KUBECTL_CONTEXT}" \
+  --namespace default \
+  --set "image.repository=${IMAGE_REPOSITORY}" \
+  --set "image.tag=${IMAGE_TAG}" \
+  --set image.pullPolicy=Never \
+  --wait \
+  --timeout "${HELM_TIMEOUT}"
+
+log "waiting for responses-api-store pod"
+kubectl --context "${KUBECTL_CONTEXT}" wait --for=condition=ready pod \
+  -l "app.kubernetes.io/name=responses-api-store,app.kubernetes.io/instance=${RELEASE}" \
+  --timeout=180s
+
+PF_LOG="$(mktemp)"
+log "port-forwarding svc/${RELEASE} ${PORT}:${SERVICE_PORT}"
+kubectl --context "${KUBECTL_CONTEXT}" port-forward "svc/${RELEASE}" "${PORT}:${SERVICE_PORT}" >"${PF_LOG}" 2>&1 &
+PORT_FORWARD_PID=$!
+
+log "waiting for local gRPC endpoint"
+for attempt in $(seq 1 60); do
+  if ! kill -0 "${PORT_FORWARD_PID}" 2>/dev/null; then
+    cat "${PF_LOG}" >&2 || true
+    dump_cluster_state
+    echo "port-forward exited before gRPC became reachable" >&2
+    exit 1
+  fi
+  if (echo >"/dev/tcp/127.0.0.1/${PORT}") >/dev/null 2>&1; then
+    break
+  fi
+  if [[ "${attempt}" -eq 60 ]]; then
+    cat "${PF_LOG}" >&2 || true
+    dump_cluster_state
+    echo "timed out waiting for gRPC on 127.0.0.1:${PORT}" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+log "building smoke test client"
+cargo build -p responses-api-store-client --example smoke
+
+log "running smoke test against chart deployment"
+STORE_ENDPOINT="http://127.0.0.1:${PORT}" cargo run -p responses-api-store-client --example smoke
+
+log "helm kind smoke test passed"
