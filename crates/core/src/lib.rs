@@ -10,9 +10,9 @@ pub use config::{
 };
 pub use error::StoreError;
 pub use model::{
-    build_cancelled_response, build_queued_response, build_upstream_request, generate_response_id,
-    is_deleted_tombstone, is_in_flight_background, response_id_from_value, response_store_key,
-    stored_response_status, unix_seconds_now, BackgroundJob, StoredResponse,
+    autoclaim_cursor_key, build_cancelled_response, build_queued_response, build_upstream_request,
+    generate_response_id, is_deleted_tombstone, is_in_flight_background, response_id_from_value,
+    response_store_key, stored_response_status, unix_seconds_now, BackgroundJob, StoredResponse,
 };
-pub use queue::{BackgroundQueue, ClaimOptions};
+pub use queue::{BackgroundQueue, ClaimBatchResult, ClaimOptions};
 pub use store::ResponseStore;

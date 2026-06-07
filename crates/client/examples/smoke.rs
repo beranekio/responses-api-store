@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let created = client.ensure_consumer_group("smoke-test", "0-0").await?;
     println!("consumer group created={created}");
 
-    let jobs = client
+    let claim = client
         .claim_background_jobs(responses_api_store_client::ClaimBackgroundJobsRequest {
             consumer_group: "smoke-test".to_string(),
             consumer_name: "smoke-worker".to_string(),
@@ -50,11 +50,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             autoclaim_min_idle_ms: 0,
         })
         .await?;
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0].response_id, response_id);
+    assert_eq!(claim.jobs.len(), 1);
+    assert!(claim.pending_stream_ids.is_empty());
+    assert_eq!(claim.jobs[0].response_id, response_id);
 
     client
-        .acknowledge_background_job("smoke-test", &jobs[0].stream_id)
+        .acknowledge_background_job("smoke-test", &claim.jobs[0].stream_id)
         .await?;
     client.delete_response(&response_id).await?;
 

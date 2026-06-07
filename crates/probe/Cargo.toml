@@ -1,0 +1,16 @@
+[package]
+name = "responses-api-store-probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kubernetes readiness probe for the Responses API store"
+
+[[bin]]
+name = "responses-api-store-probe"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+responses-api-store-client = { path = "../client" }
+tokio = { workspace = true }

@@ -27,6 +27,10 @@ pub fn response_store_key(prefix: &str, response_id: &str) -> String {
     format!("{prefix}:{response_id}")
 }
 
+pub fn autoclaim_cursor_key(stream_key: &str, consumer_group: &str) -> String {
+    format!("{stream_key}:meta:autoclaim:{consumer_group}")
+}
+
 pub fn response_id_from_value(value: &Value) -> Option<String> {
     value
         .get("id")
@@ -167,5 +171,13 @@ mod tests {
         assert!(!is_stale_enqueued(None, 1000, 60));
         assert!(!is_stale_enqueued(Some(950), 1000, 60));
         assert!(is_stale_enqueued(Some(900), 1000, 60));
+    }
+
+    #[test]
+    fn builds_autoclaim_cursor_key() {
+        assert_eq!(
+            autoclaim_cursor_key("responses-api-store:background", "workers"),
+            "responses-api-store:background:meta:autoclaim:workers"
+        );
     }
 }

@@ -978,6 +978,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "responses-api-store-probe"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "responses-api-store-client",
+ "tokio",
+]
+
+[[package]]
 name = "responses-api-store-proto"
 version = "0.1.0"
 dependencies = [

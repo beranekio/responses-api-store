@@ -34,7 +34,7 @@ Protobuf definition: [`proto/responsesapistore/v1/store.proto`](proto/responsesa
 | `UpdateResponse` | Replace a stored record |
 | `DeleteResponse` | Delete or tombstone a record |
 | `EnqueueBackgroundJob` | Store a queued record and publish it to the background stream |
-| `ClaimBackgroundJobs` | Claim jobs for worker processing (`XREADGROUP` + `XAUTOCLAIM`) |
+| `ClaimBackgroundJobs` | Claim jobs for worker processing (`XREADGROUP` + `XAUTOCLAIM`); may return `pending_stream_ids` when record load fails transiently |
 | `AcknowledgeBackgroundJob` | Acknowledge successful job processing |
 | `EnsureConsumerGroup` | Bootstrap the Redis stream consumer group |
 | `ReconcileStaleResponse` | Mark stale queued responses as `failed` |
@@ -136,7 +136,18 @@ docker run --rm -p 50051:50051 \
 
 The chart can run standalone or as a subchart. By default it deploys an embedded Valkey instance for local development and smoke testing.
 
-**Bundled Valkey is ephemeral:** the subchart disables RDB/AOF persistence and does not mount a PVC, so pod restarts or reschedules permanently lose stored responses, stream entries, and consumer-group state. For production, disable bundled Valkey and use external Redis/Valkey with persistence.
+**Bundled Valkey is ephemeral by default:** the subchart disables RDB/AOF persistence and does not mount a PVC, so pod restarts or reschedules permanently lose stored responses, stream entries, and consumer-group state. For production, disable bundled Valkey and use external Redis/Valkey with persistence. For single-node installs that should survive restarts, enable optional bundled persistence:
+
+```yaml
+valkey:
+  persistence:
+    enabled: true
+    size: 1Gi
+```
+
+**gRPC port alignment:** set `grpc.port` (default `50051`) as the canonical listener port. The chart derives `containerPort`, Service port, and `GRPC_LISTEN_ADDR` (`0.0.0.0:<port>`) from it unless `grpc.listenAddr` is set explicitly.
+
+**Readiness:** the chart runs `/responses-api-store-probe`, which calls the `Health` RPC and fails when `redis_ok` is false. Liveness remains a TCP check on the gRPC port.
 
 ```bash
 helm install responses-api-store ./charts/responses-api-store

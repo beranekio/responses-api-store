@@ -10,10 +10,11 @@ COPY Cargo.toml Cargo.lock* ./
 COPY crates ./crates
 COPY proto ./proto
 
-RUN cargo build --release -p responses-api-store-server
+RUN cargo build --release -p responses-api-store-server -p responses-api-store-probe
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=builder /app/target/release/responses-api-store /responses-api-store
+COPY --from=builder /app/target/release/responses-api-store-probe /responses-api-store-probe
 
 EXPOSE 50051
 ENTRYPOINT ["/responses-api-store"]

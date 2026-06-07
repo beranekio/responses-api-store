@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use redis::{
     aio::ConnectionManager,
     streams::{
@@ -6,12 +8,16 @@ use redis::{
     },
     AsyncCommands, RedisError, RedisResult,
 };
+use tokio::time::sleep;
 
 use crate::{
     error::{Result, StoreError},
-    model::BackgroundJob,
+    model::{autoclaim_cursor_key, BackgroundJob},
     store::ResponseStore,
 };
+
+const LOAD_RETRY_ATTEMPTS: usize = 3;
+const LOAD_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 #[derive(Clone)]
 pub struct BackgroundQueue {
@@ -28,6 +34,12 @@ pub struct ClaimOptions {
     pub count: usize,
     pub block_ms: usize,
     pub autoclaim_min_idle_ms: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClaimBatchResult {
+    pub jobs: Vec<BackgroundJob>,
+    pub pending_stream_ids: Vec<String>,
 }
 
 impl BackgroundQueue {
@@ -88,13 +100,30 @@ impl BackgroundQueue {
         }
     }
 
+    pub async fn get_autoclaim_cursor(&self, consumer_group: &str) -> Result<String> {
+        let mut connection = self.command_connection.clone();
+        let key = autoclaim_cursor_key(&self.stream_key, consumer_group);
+        let cursor: Option<String> = connection.get(&key).await.map_err(StoreError::Storage)?;
+        Ok(cursor.unwrap_or_else(|| "0-0".to_string()))
+    }
+
+    pub async fn set_autoclaim_cursor(&self, consumer_group: &str, cursor: &str) -> Result<()> {
+        let mut connection = self.command_connection.clone();
+        let key = autoclaim_cursor_key(&self.stream_key, consumer_group);
+        connection
+            .set::<_, _, ()>(&key, cursor)
+            .await
+            .map_err(StoreError::Storage)?;
+        Ok(())
+    }
+
     pub async fn claim_jobs(
         &self,
         store: &ResponseStore,
         options: &ClaimOptions,
         autoclaim_cursor: &mut String,
-    ) -> Result<Vec<BackgroundJob>> {
-        let mut jobs = Vec::new();
+    ) -> Result<ClaimBatchResult> {
+        let mut result = ClaimBatchResult::default();
 
         if options.autoclaim_min_idle_ms > 0 && options.count > 0 {
             let autoclaim_count = options.count;
@@ -108,14 +137,15 @@ impl BackgroundQueue {
                 )
                 .await?;
             *autoclaim_cursor = autoclaim.next_stream_id;
-            jobs.extend(
-                self.jobs_from_stream_ids(store, &options.consumer_group, &autoclaim.claimed, true)
-                    .await?,
-            );
+            let batch = self
+                .jobs_from_stream_ids(store, &options.consumer_group, &autoclaim.claimed, true)
+                .await?;
+            result.jobs.extend(batch.jobs);
+            result.pending_stream_ids.extend(batch.pending_stream_ids);
         }
 
-        let remaining = options.count.saturating_sub(jobs.len());
-        if remaining > 0 && jobs.is_empty() {
+        let remaining = options.count.saturating_sub(result.jobs.len());
+        if remaining > 0 {
             let read = self
                 .read_group(
                     &options.consumer_group,
@@ -124,13 +154,14 @@ impl BackgroundQueue {
                     options.block_ms,
                 )
                 .await?;
-            jobs.extend(
-                self.jobs_from_stream_ids(store, &options.consumer_group, &read.ids, false)
-                    .await?,
-            );
+            let batch = self
+                .jobs_from_stream_ids(store, &options.consumer_group, &read.ids, false)
+                .await?;
+            result.jobs.extend(batch.jobs);
+            result.pending_stream_ids.extend(batch.pending_stream_ids);
         }
 
-        Ok(jobs)
+        Ok(result)
     }
 
     pub async fn acknowledge(&self, consumer_group: &str, stream_id: &str) -> Result<()> {
@@ -207,15 +238,16 @@ impl BackgroundQueue {
         consumer_group: &str,
         entries: &[StreamId],
         autoclaimed: bool,
-    ) -> Result<Vec<BackgroundJob>> {
+    ) -> Result<ClaimBatchResult> {
         let mut jobs = Vec::with_capacity(entries.len());
+        let mut pending_stream_ids = Vec::new();
         for entry in entries {
             let response_id = match entry.get::<String>("response_id") {
                 Some(value) => value,
                 None => continue,
             };
 
-            let record = match store.load(&response_id).await {
+            let record = match self.load_with_retries(store, &response_id).await {
                 Ok(Some(record)) => record,
                 Ok(None) => {
                     let _ = self.acknowledge(consumer_group, &entry.id).await;
@@ -231,6 +263,16 @@ impl BackgroundQueue {
                     let _ = self.acknowledge(consumer_group, &entry.id).await;
                     continue;
                 }
+                Err(StoreError::Storage(err)) => {
+                    tracing::warn!(
+                        response_id,
+                        stream_id = entry.id,
+                        error = %err,
+                        "deferring stream entry after transient load failure"
+                    );
+                    pending_stream_ids.push(entry.id.clone());
+                    continue;
+                }
                 Err(err) => return Err(err),
             };
 
@@ -242,7 +284,33 @@ impl BackgroundQueue {
                 idle_ms: None,
             });
         }
-        Ok(jobs)
+        Ok(ClaimBatchResult {
+            jobs,
+            pending_stream_ids,
+        })
+    }
+
+    async fn load_with_retries(
+        &self,
+        store: &ResponseStore,
+        response_id: &str,
+    ) -> Result<Option<crate::model::StoredResponse>> {
+        let mut last_err = None;
+        for attempt in 0..LOAD_RETRY_ATTEMPTS {
+            match store.load(response_id).await {
+                Ok(record) => return Ok(record),
+                Err(StoreError::Storage(err)) => {
+                    last_err = Some(err);
+                    if attempt + 1 < LOAD_RETRY_ATTEMPTS {
+                        sleep(LOAD_RETRY_DELAY).await;
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Err(StoreError::Storage(
+            last_err.expect("storage error after retries"),
+        ))
     }
 }
 

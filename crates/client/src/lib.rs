@@ -23,6 +23,12 @@ pub struct Client {
     inner: ResponsesApiStoreClient<Channel>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClaimBackgroundJobsResult {
+    pub jobs: Vec<BackgroundJob>,
+    pub pending_stream_ids: Vec<String>,
+}
+
 impl Client {
     pub async fn connect(endpoint: impl Into<String>) -> Result<Self> {
         let max_message_bytes = grpc_max_message_bytes_from_env()
@@ -133,13 +139,13 @@ impl Client {
     pub async fn claim_background_jobs(
         &mut self,
         request: ClaimBackgroundJobsRequest,
-    ) -> Result<Vec<BackgroundJob>> {
+    ) -> Result<ClaimBackgroundJobsResult> {
         let response = self
             .inner
             .claim_background_jobs(request)
             .await?
             .into_inner();
-        response
+        let jobs = response
             .jobs
             .into_iter()
             .map(|job| {
@@ -152,7 +158,11 @@ impl Client {
                     idle_ms: job.idle_ms,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ClaimBackgroundJobsResult {
+            jobs,
+            pending_stream_ids: response.pending_stream_ids,
+        })
     }
 
     pub async fn acknowledge_background_job(

@@ -18,10 +18,14 @@ podLabels: {}
 
 service:
   type: ClusterIP
+  # Defaults to grpc.port when unset.
   port: 50051
 
 grpc:
-  listenAddr: "0.0.0.0:50051"
+  # Canonical gRPC port; containerPort and GRPC_LISTEN_ADDR derive from this unless overridden.
+  port: 50051
+  # Optional full bind address (e.g. 127.0.0.1:50051). When empty, uses 0.0.0.0:grpc.port.
+  listenAddr: ""
   # Max gRPC send/recv size in bytes (default 64 MiB; tonic default is 4 MiB).
   maxMessageBytes: 67108864
 
@@ -49,6 +53,11 @@ valkey:
     pullPolicy: IfNotPresent
   service:
     port: 6379
+  persistence:
+    enabled: false
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 1Gi
   resources:
     requests:
       cpu: 50m
@@ -72,10 +81,12 @@ livenessProbe:
   periodSeconds: 20
 
 readinessProbe:
-  tcpSocket:
-    port: grpc
+  exec:
+    command:
+      - /responses-api-store-probe
   initialDelaySeconds: 3
   periodSeconds: 10
+  failureThreshold: 3
 
 nodeSelector: {}
 tolerations: []

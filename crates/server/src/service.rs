@@ -1,7 +1,5 @@
 #![allow(clippy::result_large_err)]
 
-use std::{collections::HashMap, sync::Arc};
-
 use responses_api_store_core::{
     generate_response_id, is_in_flight_background, unix_seconds_now, BackgroundQueue, ClaimOptions,
     ResponseStore, StoreConfig, StoreError,
@@ -15,7 +13,6 @@ use responses_api_store_proto::v1::{
     HealthRequest, HealthResponse, ReconcileStaleResponseRequest, ReconcileStaleResponseResponse,
     StoreResponseRequest, StoreResponseResponse, UpdateResponseRequest, UpdateResponseResponse,
 };
-use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 use crate::convert::{core_job_to_proto, core_to_proto, map_store_error, proto_to_core};
@@ -26,7 +23,6 @@ pub struct ResponsesApiStoreService {
     store: ResponseStore,
     queue: BackgroundQueue,
     default_stale_seconds: i64,
-    autoclaim_cursors: Mutex<HashMap<String, Arc<Mutex<String>>>>,
 }
 
 impl ResponsesApiStoreService {
@@ -48,7 +44,6 @@ impl ResponsesApiStoreService {
             store,
             queue,
             default_stale_seconds: config.stale_seconds,
-            autoclaim_cursors: Mutex::new(HashMap::new()),
         })
     }
 
@@ -186,20 +181,14 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         }
 
         let count = (request.count.max(1) as usize).min(MAX_CLAIM_COUNT);
-        let group_cursor = {
-            let mut cursors = self.autoclaim_cursors.lock().await;
-            cursors
-                .entry(request.consumer_group.clone())
-                .or_insert_with(|| Arc::new(Mutex::new("0-0".to_string())))
-                .clone()
-        };
+        let consumer_group = request.consumer_group.clone();
+        let mut cursor = self
+            .queue
+            .get_autoclaim_cursor(&consumer_group)
+            .await
+            .map_err(map_store_error)?;
 
-        let mut cursor = {
-            let guard = group_cursor.lock().await;
-            guard.clone()
-        };
-
-        let jobs = self
+        let batch = self
             .queue
             .claim_jobs(
                 &self.store,
@@ -215,16 +204,20 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             .await
             .map_err(map_store_error)?;
 
-        {
-            let mut guard = group_cursor.lock().await;
-            *guard = cursor;
-        }
+        self.queue
+            .set_autoclaim_cursor(&consumer_group, &cursor)
+            .await
+            .map_err(map_store_error)?;
 
-        let jobs = jobs
+        let jobs = batch
+            .jobs
             .into_iter()
             .map(|job| core_job_to_proto(&job))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Response::new(ClaimBackgroundJobsResponse { jobs }))
+        Ok(Response::new(ClaimBackgroundJobsResponse {
+            jobs,
+            pending_stream_ids: batch.pending_stream_ids,
+        }))
     }
 
     async fn acknowledge_background_job(
