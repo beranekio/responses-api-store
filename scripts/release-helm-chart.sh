@@ -6,6 +6,25 @@ owner="${GITHUB_REPOSITORY_OWNER:?}"
 repo="${GITHUB_REPOSITORY#*/}"
 config="${CR_CONFIG:-.cr.yaml}"
 
+ensure_local_pages_ref() {
+  local remote="${CR_GIT_REMOTE:-origin}"
+  local branch="${CR_PAGES_BRANCH:-gh-pages}"
+  local ref="refs/remotes/${remote}/${branch}"
+
+  if git show-ref --verify --quiet "$ref"; then
+    return 0
+  fi
+
+  # chart-releaser v1.7.0 always opens a worktree at remote/branch for cr upload
+  # and cr index, even when we publish the index via GitHub Actions. Create a
+  # local-only stub ref so git worktree add succeeds without a remote branch.
+  echo "Creating local ${remote}/${branch} stub for chart-releaser worktree..."
+  local empty_tree commit
+  empty_tree="$(git hash-object -t tree /dev/null)"
+  commit="$(git commit-tree "$empty_tree" -m "Local stub for chart-releaser worktree")"
+  git update-ref "$ref" "$commit"
+}
+
 git fetch --tags >/dev/null 2>&1 || true
 
 latest_tag="$(
@@ -34,6 +53,8 @@ if [[ ${#changed_charts[@]} -eq 0 ]]; then
   echo "No valid chart changes detected"
   exit 0
 fi
+
+ensure_local_pages_ref
 
 rm -rf .cr-release-packages pages
 mkdir -p .cr-release-packages pages
