@@ -149,12 +149,17 @@ impl BackgroundQueue {
         let claimed = result.jobs.len() + result.pending_stream_ids.len();
         let remaining = options.count.saturating_sub(claimed);
         if remaining > 0 {
+            let fill_block_ms = if has_claimed_entries(&result) {
+                0
+            } else {
+                options.block_ms
+            };
             let read = match self
                 .read_group(
                     &options.consumer_group,
                     &options.consumer_name,
                     remaining,
-                    options.block_ms,
+                    fill_block_ms,
                 )
                 .await
             {

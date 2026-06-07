@@ -1,5 +1,8 @@
-use redis::AsyncCommands;
+use std::sync::Arc;
+
+use redis::{aio::MultiplexedConnection, AsyncCommands};
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 
 use crate::{
     error::{Result, StoreError},
@@ -12,6 +15,8 @@ use crate::{
 #[derive(Clone)]
 pub struct ResponseStore {
     connection: redis::aio::ConnectionManager,
+    /// Exclusive connection for WATCH/MULTI/EXEC; must not be cloned or shared with other RPCs.
+    transaction_connection: Arc<Mutex<MultiplexedConnection>>,
     key_prefix: String,
     default_ttl_seconds: u64,
     stale_seconds: i64,
@@ -25,11 +30,16 @@ impl ResponseStore {
         stale_seconds: i64,
     ) -> Result<Self> {
         let client = redis::Client::open(redis_url).map_err(StoreError::Storage)?;
-        let connection = redis::aio::ConnectionManager::new(client)
+        let connection = redis::aio::ConnectionManager::new(client.clone())
+            .await
+            .map_err(StoreError::Storage)?;
+        let transaction_connection = client
+            .get_multiplexed_async_connection()
             .await
             .map_err(StoreError::Storage)?;
         Ok(Self {
             connection,
+            transaction_connection: Arc::new(Mutex::new(transaction_connection)),
             key_prefix,
             default_ttl_seconds,
             stale_seconds,
@@ -153,10 +163,11 @@ impl ResponseStore {
         let key = self.key(response_id);
 
         for attempt in 0..MAX_ATTEMPTS {
-            let mut connection = self.connection.clone();
+            let mut guard = self.transaction_connection.lock().await;
+            let connection = &mut *guard;
             redis::cmd("WATCH")
                 .arg(&key)
-                .query_async::<()>(&mut connection)
+                .query_async::<()>(connection)
                 .await
                 .map_err(StoreError::Storage)?;
 
@@ -164,7 +175,7 @@ impl ResponseStore {
 
             let Some(raw) = raw else {
                 let _ = redis::cmd("UNWATCH")
-                    .query_async::<()>(&mut connection)
+                    .query_async::<()>(connection)
                     .await;
                 return Err(StoreError::NotFound(response_id.to_string()));
             };
@@ -176,7 +187,7 @@ impl ResponseStore {
                 || !is_stale_enqueued(stored.enqueued_at, now, stale_seconds)
             {
                 let _ = redis::cmd("UNWATCH")
-                    .query_async::<()>(&mut connection)
+                    .query_async::<()>(connection)
                     .await;
                 return Ok(stored);
             }
@@ -194,19 +205,19 @@ impl ResponseStore {
             };
 
             redis::cmd("MULTI")
-                .query_async::<()>(&mut connection)
+                .query_async::<()>(connection)
                 .await
                 .map_err(StoreError::Storage)?;
             redis::cmd("SETEX")
                 .arg(&key)
                 .arg(ttl)
                 .arg(&payload)
-                .query_async::<()>(&mut connection)
+                .query_async::<()>(connection)
                 .await
                 .map_err(StoreError::Storage)?;
 
             let exec_result: Option<Vec<redis::Value>> = redis::cmd("EXEC")
-                .query_async(&mut connection)
+                .query_async(connection)
                 .await
                 .map_err(StoreError::Storage)?;
 
