@@ -66,6 +66,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{- define "responses-api-store.metricsPort" -}}
+{{- if .Values.metrics.listenAddr -}}
+{{- $parts := splitList ":" .Values.metrics.listenAddr -}}
+{{- last $parts | int -}}
+{{- else -}}
+{{- .Values.metrics.port | int -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "responses-api-store.metricsListenAddr" -}}
+{{- if .Values.metrics.listenAddr -}}
+{{- .Values.metrics.listenAddr -}}
+{{- else -}}
+{{- printf "0.0.0.0:%d" (int .Values.metrics.port) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "responses-api-store.redisUrl" -}}
 {{- if .Values.redis.url -}}
 {{- .Values.redis.url -}}

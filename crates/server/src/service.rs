@@ -9,8 +9,9 @@ use responses_api_store_proto::v1::{
     AcknowledgeBackgroundJobResponse, ClaimBackgroundJobsRequest, ClaimBackgroundJobsResponse,
     DeleteResponseRequest, DeleteResponseResponse, EnqueueBackgroundJobRequest,
     EnqueueBackgroundJobResponse, EnsureConsumerGroupRequest, EnsureConsumerGroupResponse,
-    GenerateResponseIdRequest, GenerateResponseIdResponse, GetResponseRequest, GetResponseResponse,
-    HealthRequest, HealthResponse, ReconcileStaleResponseRequest, ReconcileStaleResponseResponse,
+    GenerateResponseIdRequest, GenerateResponseIdResponse, GetBackgroundQueueStatsRequest,
+    GetBackgroundQueueStatsResponse, GetResponseRequest, GetResponseResponse, HealthRequest,
+    HealthResponse, ReconcileStaleResponseRequest, ReconcileStaleResponseResponse,
     StoreResponseRequest, StoreResponseResponse, UpdateResponseRequest, UpdateResponseResponse,
 };
 use tonic::{Request, Response, Status};
@@ -28,6 +29,10 @@ pub struct ResponsesApiStoreService {
 }
 
 impl ResponsesApiStoreService {
+    pub fn queue(&self) -> &BackgroundQueue {
+        &self.queue
+    }
+
     pub async fn new(config: StoreConfig) -> Result<Self, StoreError> {
         let store = ResponseStore::connect(
             &config.redis_url,
@@ -267,6 +272,27 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             .await
             .map_err(|err| map_store_error("EnsureConsumerGroup", err))?;
         Ok(Response::new(EnsureConsumerGroupResponse { created }))
+    }
+
+    async fn get_background_queue_stats(
+        &self,
+        request: Request<GetBackgroundQueueStatsRequest>,
+    ) -> Result<Response<GetBackgroundQueueStatsResponse>, Status> {
+        let request = request.into_inner();
+        if request.consumer_group.is_empty() {
+            return Err(Status::invalid_argument("consumer_group is required"));
+        }
+
+        let stats = self
+            .queue
+            .stats(&request.consumer_group)
+            .await
+            .map_err(|err| map_store_error("GetBackgroundQueueStats", err))?;
+        Ok(Response::new(GetBackgroundQueueStatsResponse {
+            pending: stats.pending,
+            in_progress: stats.in_progress,
+            workload: stats.workload,
+        }))
     }
 
     async fn reconcile_stale_response(

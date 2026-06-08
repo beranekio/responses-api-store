@@ -12,8 +12,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+axum = "0.8"
 responses-api-store-core = { path = "../core" }
 responses-api-store-proto = { path = "../proto" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }

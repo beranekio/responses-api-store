@@ -3,8 +3,8 @@ use std::time::Duration;
 use redis::{
     aio::ConnectionManager,
     streams::{
-        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamKey, StreamMaxlen,
-        StreamReadOptions, StreamReadReply,
+        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamInfoGroupsReply, StreamKey,
+        StreamMaxlen, StreamReadOptions, StreamReadReply,
     },
     AsyncCommands, AsyncConnectionConfig, RedisError, RedisResult, Script,
 };
@@ -42,6 +42,16 @@ pub struct ClaimOptions {
 pub struct ClaimBatchResult {
     pub jobs: Vec<BackgroundJob>,
     pub pending_stream_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BackgroundQueueStats {
+    /// Jobs waiting to be claimed by a worker.
+    pub pending: u64,
+    /// Jobs claimed but not yet acknowledged (in-flight).
+    pub in_progress: u64,
+    /// Scalar for HPA/KEDA (pending + in_progress).
+    pub workload: u64,
 }
 
 impl BackgroundQueue {
@@ -193,6 +203,32 @@ impl BackgroundQueue {
         }
 
         Ok(result)
+    }
+
+    pub async fn stats(&self, consumer_group: &str) -> Result<BackgroundQueueStats> {
+        let mut connection = self.command_connection.clone();
+        let info: StreamInfoGroupsReply = match connection.xinfo_groups(&self.stream_key).await {
+            Ok(info) => info,
+            Err(err) if is_missing_stream(&err) => return Ok(BackgroundQueueStats::default()),
+            Err(err) => return Err(StoreError::Storage(err)),
+        };
+        let group = info
+            .groups
+            .into_iter()
+            .find(|group| group.name == consumer_group)
+            .ok_or_else(|| {
+                StoreError::NotFound(format!(
+                    "consumer group {consumer_group} not found for stream {}",
+                    self.stream_key
+                ))
+            })?;
+        let pending = group.lag.unwrap_or(0) as u64;
+        let in_progress = group.pending as u64;
+        Ok(BackgroundQueueStats {
+            pending,
+            in_progress,
+            workload: pending.saturating_add(in_progress),
+        })
     }
 
     pub async fn acknowledge(&self, consumer_group: &str, stream_id: &str) -> Result<()> {
@@ -394,6 +430,10 @@ fn has_claimed_entries(result: &ClaimBatchResult) -> bool {
 
 fn is_busygroup(err: &RedisError) -> bool {
     err.to_string().contains("BUSYGROUP")
+}
+
+fn is_missing_stream(err: &RedisError) -> bool {
+    err.to_string().contains("no such key")
 }
 
 const AUTOCLAIM_CURSOR_SCRIPT: &str = r#"

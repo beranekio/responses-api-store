@@ -182,6 +182,28 @@ func (c *Client) AcknowledgeBackgroundJob(ctx context.Context, consumerGroup, st
 	return err
 }
 
+// BackgroundQueueStats is a store-agnostic queue depth signal for autoscaling.
+type BackgroundQueueStats struct {
+	Pending    uint64
+	InProgress uint64
+	Workload   uint64
+}
+
+// GetBackgroundQueueStats returns pending, in-progress, and workload counts for a consumer group.
+func (c *Client) GetBackgroundQueueStats(ctx context.Context, consumerGroup string) (BackgroundQueueStats, error) {
+	resp, err := c.client.GetBackgroundQueueStats(ctx, &pb.GetBackgroundQueueStatsRequest{
+		ConsumerGroup: consumerGroup,
+	})
+	if err != nil {
+		return BackgroundQueueStats{}, err
+	}
+	return BackgroundQueueStats{
+		Pending:    resp.GetPending(),
+		InProgress: resp.GetInProgress(),
+		Workload:   resp.GetWorkload(),
+	}, nil
+}
+
 // EnsureConsumerGroup creates the Redis stream consumer group when missing.
 func (c *Client) EnsureConsumerGroup(ctx context.Context, consumerGroup, startID string) (bool, error) {
 	resp, err := c.client.EnsureConsumerGroup(ctx, &pb.EnsureConsumerGroupRequest{

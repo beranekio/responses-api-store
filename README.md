@@ -72,6 +72,41 @@ charts/responses-api-store/    # Helm subchart
 | `BACKGROUND_QUEUE_STREAM_KEY` | `responses-api-store:background` | Redis stream key for background jobs |
 | `BACKGROUND_QUEUE_STREAM_MAXLEN` | `10000` | Approximate max stream length (`XADD MAXLEN ~`); `0` disables trimming |
 | `BACKGROUND_RESPONSE_STALE_SECONDS` | `3600` | Stale threshold for queued background responses |
+| `METRICS_HTTP_ENABLED` | `true` | Enable HTTP metrics listener for KEDA/Prometheus autoscaling |
+| `METRICS_HTTP_LISTEN_ADDR` | `0.0.0.0:8080` | HTTP bind address for background queue metrics |
+
+## Background queue metrics (KEDA)
+
+The service exposes store-agnostic queue depth for autoscaling without Valkey credentials or Redis Streams semantics.
+
+**gRPC:** `GetBackgroundQueueStats` returns:
+
+| Field | Meaning |
+| --- | --- |
+| `pending` | Jobs waiting to be claimed by `ClaimBackgroundJobs` |
+| `in_progress` | Jobs claimed but not yet `AcknowledgeBackgroundJob` |
+| `workload` | Recommended scale signal (`pending + in_progress`) |
+
+**HTTP** (when `METRICS_HTTP_ENABLED=true`):
+
+```http
+GET /metrics/background-queue?consumer_group=<name>
+```
+
+Example response:
+
+```json
+{
+  "consumer_group": "duihua-background",
+  "pending": 3,
+  "in_progress": 2,
+  "workload": 5
+}
+```
+
+Prometheus text is also available at `GET /metrics?consumer_group=<name>`.
+
+**KEDA `metrics-api` scaler:** point at the chart Service metrics port (default `8080`), set `valueLocation: workload`, and tune `targetValue` / `activationTargetValue` to your desired jobs-per-replica (for example `targetValue: "1"` scales up when `workload >= 1`). Use `activationTargetValue` to keep a minimum replica count until work appears.
 
 ## CI
 
@@ -154,6 +189,8 @@ valkey:
 **gRPC port alignment:** set `grpc.port` (default `50051`) as the canonical listener port. The chart derives `containerPort`, Service port, and `GRPC_LISTEN_ADDR` (`0.0.0.0:<port>`) from it unless `grpc.listenAddr` or `service.port` is set explicitly. When `grpc.listenAddr` includes a port, that port is also used for `containerPort` and the Service.
 
 **Readiness:** the chart runs `/responses-api-store-probe`, which calls the `Health` RPC and fails when `redis_ok` is false. Liveness remains a TCP check on the gRPC port.
+
+**Metrics:** when `metrics.enabled` is true (default), the chart exposes port `metrics.port` (default `8080`) on the Service for KEDA/Prometheus queue-depth scraping. Set `metrics.enabled: false` to disable the HTTP listener.
 
 ### Install from the repository
 

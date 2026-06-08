@@ -55,6 +55,8 @@ Key environment variables (server defaults align with duihua-ai-services naming)
 | `BACKGROUND_QUEUE_STREAM_KEY` | `responses-api-store:background` | Background job stream |
 | `BACKGROUND_QUEUE_STREAM_MAXLEN` | `10000` | Approximate max stream length on enqueue (`0` disables trimming) |
 | `BACKGROUND_RESPONSE_STALE_SECONDS` | `3600` | Stale queued job threshold |
+| `METRICS_HTTP_ENABLED` | `true` | HTTP metrics listener for KEDA/Prometheus |
+| `METRICS_HTTP_LISTEN_ADDR` | `0.0.0.0:8080` | Metrics HTTP bind address |
 
 ## Recommended workflow
 

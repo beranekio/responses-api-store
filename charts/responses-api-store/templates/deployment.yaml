@@ -29,6 +29,10 @@ spec:
           ports:
             - name: grpc
               containerPort: {{ include "responses-api-store.grpcPort" . }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ include "responses-api-store.metricsPort" . }}
+            {{- end }}
           env:
             - name: GRPC_LISTEN_ADDR
               value: {{ include "responses-api-store.grpcListenAddr" . | quote }}
@@ -46,6 +50,15 @@ spec:
               value: {{ .Values.backgroundQueue.streamKey | quote }}
             - name: BACKGROUND_QUEUE_STREAM_MAXLEN
               value: {{ .Values.backgroundQueue.streamMaxlen | quote }}
+            {{- if .Values.metrics.enabled }}
+            - name: METRICS_HTTP_ENABLED
+              value: "true"
+            - name: METRICS_HTTP_LISTEN_ADDR
+              value: {{ include "responses-api-store.metricsListenAddr" . | quote }}
+            {{- else }}
+            - name: METRICS_HTTP_ENABLED
+              value: "false"
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

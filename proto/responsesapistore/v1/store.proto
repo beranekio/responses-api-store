@@ -18,6 +18,8 @@ service ResponsesApiStore {
   rpc ClaimBackgroundJobs(ClaimBackgroundJobsRequest) returns (ClaimBackgroundJobsResponse);
   rpc AcknowledgeBackgroundJob(AcknowledgeBackgroundJobRequest) returns (AcknowledgeBackgroundJobResponse);
   rpc EnsureConsumerGroup(EnsureConsumerGroupRequest) returns (EnsureConsumerGroupResponse);
+  rpc GetBackgroundQueueStats(GetBackgroundQueueStatsRequest)
+      returns (GetBackgroundQueueStatsResponse);
 
   // Maintenance and utilities
   rpc ReconcileStaleResponse(ReconcileStaleResponseRequest) returns (ReconcileStaleResponseResponse);
@@ -120,6 +122,19 @@ message EnsureConsumerGroupRequest {
 
 message EnsureConsumerGroupResponse {
   bool created = 1;
+}
+
+message GetBackgroundQueueStatsRequest {
+  string consumer_group = 1;
+}
+
+message GetBackgroundQueueStatsResponse {
+  // Jobs waiting to be claimed by a worker.
+  uint64 pending = 1;
+  // Jobs claimed but not yet acknowledged (in-flight).
+  uint64 in_progress = 2;
+  // Scalar for HPA/KEDA (recommended: pending + in_progress).
+  uint64 workload = 3;
 }
 
 message ReconcileStaleResponseRequest {

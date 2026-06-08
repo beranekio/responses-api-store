@@ -54,6 +54,17 @@ pub fn grpc_listen_addr_from_env() -> Result<String> {
     Ok(env::var("GRPC_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:50051".to_string()))
 }
 
+pub fn metrics_http_enabled_from_env() -> bool {
+    match env::var("METRICS_HTTP_ENABLED") {
+        Ok(value) => matches!(value.to_lowercase().as_str(), "1" | "true" | "yes"),
+        Err(_) => true,
+    }
+}
+
+pub fn metrics_http_listen_addr_from_env() -> Result<String> {
+    Ok(env::var("METRICS_HTTP_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string()))
+}
+
 pub fn grpc_max_message_bytes_from_env() -> Result<usize> {
     let bytes = parse_env_usize("GRPC_MAX_MESSAGE_BYTES", DEFAULT_GRPC_MAX_MESSAGE_BYTES)?;
     validate_grpc_max_message_bytes(bytes)?;

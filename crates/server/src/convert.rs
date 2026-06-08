@@ -126,6 +126,7 @@ pub fn map_claim_store_error(err: StoreError, consumer_group: &str, block_ms: u3
 
 fn store_error_to_status(err: StoreError) -> Status {
     match err {
+        StoreError::NotFound(id) if id.contains("consumer group") => Status::not_found(id),
         StoreError::NotFound(id) => Status::not_found(format!("response not found: {id}")),
         StoreError::InvalidArgument(message) => Status::invalid_argument(message),
         StoreError::Storage(err) => {
