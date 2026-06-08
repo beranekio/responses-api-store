@@ -62,7 +62,7 @@ Key environment variables (server defaults align with duihua-ai-services naming)
 
 1. Read `README.md` and the relevant crate or proto file before editing.
 2. Keep changes focused and minimal to the requested task.
-3. When changing the gRPC API, update `proto/` first, then regenerate or rebuild affected SDKs.
+3. When changing the gRPC API, update `proto/` first, then regenerate **both** SDKs: Rust stubs on `cargo build`, and Go stubs via `./scripts/generate-go.sh` (commit `sdk/go/` before opening the PR).
 4. Update `README.md` and Helm values/templates when behavior or configuration changes.
 5. Run targeted validation for the areas you modified (see [Validation commands](#validation-commands)).
 
@@ -193,6 +193,8 @@ When wiring this service into `duihua-ai-services`:
 ## Agent-specific notes
 
 ### Opening pull requests
+
+**Proto changes checklist:** if `proto/` changed in your branch, run `./scripts/generate-go.sh` and commit any updates under `sdk/go/` before pushing. CI enforces `git diff --exit-code sdk/go`; Rust proto stubs alone are not enough.
 
 When creating a PR, **add a GitHub label that identifies the agent** (or tooling) that authored it.
 
