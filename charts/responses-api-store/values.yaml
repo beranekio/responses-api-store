@@ -49,7 +49,7 @@ valkey:
   enabled: true
   image:
     repository: valkey/valkey
-    tag: "8.0"
+    tag: "9.1.0-alpine"
     pullPolicy: IfNotPresent
   service:
     port: 6379

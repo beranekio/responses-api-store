@@ -150,7 +150,7 @@ image artifact from the Docker build job.
 Requires a running Valkey/Redis instance:
 
 ```bash
-docker run --rm -d --name ras-valkey -p 6379:6379 valkey/valkey:8.0
+docker run --rm -d --name ras-valkey -p 6379:6379 valkey/valkey:9.1.0-alpine
 
 RESPONSE_ID_STORE_URL=redis://127.0.0.1:6379 \
 GRPC_LISTEN_ADDR=127.0.0.1:50051 \

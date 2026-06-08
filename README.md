@@ -96,7 +96,7 @@ make ci
 
 ```bash
 # Start Valkey locally
-docker run --rm -p 6379:6379 valkey/valkey:8.0
+docker run --rm -p 6379:6379 valkey/valkey:9.1.0-alpine
 
 # Run the gRPC server
 cargo run -p responses-api-store-server
