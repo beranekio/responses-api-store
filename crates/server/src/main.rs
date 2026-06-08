@@ -41,10 +41,13 @@ async fn main() -> anyhow::Result<()> {
     if metrics_http_enabled_from_env() {
         let metrics_addr =
             metrics_http_listen_addr_from_env().context("resolve metrics HTTP listen address")?;
+        let metrics_listener = tokio::net::TcpListener::bind(&metrics_addr)
+            .await
+            .with_context(|| format!("bind metrics HTTP listener on {metrics_addr}"))?;
         info!(%metrics_addr, "starting background queue metrics HTTP server");
         tokio::spawn(async move {
-            if let Err(err) = metrics::serve(queue, &metrics_addr).await {
-                tracing::error!(%metrics_addr, error = %err, "metrics HTTP server exited");
+            if let Err(err) = metrics::serve(queue, metrics_listener).await {
+                tracing::error!(error = %err, "metrics HTTP server exited");
             }
         });
     }

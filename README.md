@@ -106,7 +106,7 @@ Example response:
 
 Prometheus text is also available at `GET /metrics?consumer_group=<name>`.
 
-**KEDA `metrics-api` scaler:** point at the chart Service metrics port (default `8080`), set `valueLocation: workload`, and tune `targetValue` / `activationTargetValue` to your desired jobs-per-replica (for example `targetValue: "1"` scales up when `workload >= 1`). Use `activationTargetValue` to keep a minimum replica count until work appears.
+**KEDA `metrics-api` scaler:** point at the chart Service metrics port (default `8080`), set `valueLocation: workload`, and tune `targetValue` to your desired jobs-per-replica (for example `targetValue: "1"` scales up when `workload >= 1`). Use `minReplicaCount` to keep a minimum number of workers running. Use `activationTargetValue` as the threshold that activates the scaler when scaling from zero.
 
 ## CI
 

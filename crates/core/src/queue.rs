@@ -3,8 +3,8 @@ use std::time::Duration;
 use redis::{
     aio::ConnectionManager,
     streams::{
-        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamInfoGroupsReply, StreamKey,
-        StreamMaxlen, StreamReadOptions, StreamReadReply,
+        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamInfoGroup,
+        StreamInfoGroupsReply, StreamKey, StreamMaxlen, StreamReadOptions, StreamReadReply,
     },
     AsyncCommands, AsyncConnectionConfig, RedisError, RedisResult, Script,
 };
@@ -207,22 +207,55 @@ impl BackgroundQueue {
 
     pub async fn stats(&self, consumer_group: &str) -> Result<BackgroundQueueStats> {
         let mut connection = self.command_connection.clone();
-        let info: StreamInfoGroupsReply = match connection.xinfo_groups(&self.stream_key).await {
-            Ok(info) => info,
-            Err(err) if is_missing_stream(&err) => return Ok(BackgroundQueueStats::default()),
-            Err(err) => return Err(StoreError::Storage(err)),
-        };
-        let group = info
-            .groups
-            .into_iter()
+        let mut info = self.load_stream_groups(&mut connection).await?;
+        if self.find_group(&info, consumer_group).is_none() {
+            // Cold start: jobs may be enqueued before any worker calls EnsureConsumerGroup.
+            self.ensure_consumer_group(consumer_group, "0-0").await?;
+            info = self.load_stream_groups(&mut connection).await?;
+        }
+        let group = self.find_group(&info, consumer_group).ok_or_else(|| {
+            StoreError::NotFound(format!(
+                "consumer group {consumer_group} not found for stream {}",
+                self.stream_key
+            ))
+        })?;
+        self.stats_from_group(consumer_group, group)
+    }
+
+    async fn load_stream_groups<C>(&self, connection: &mut C) -> Result<StreamInfoGroupsReply>
+    where
+        C: AsyncCommands + Send,
+    {
+        match connection.xinfo_groups(&self.stream_key).await {
+            Ok(info) => Ok(info),
+            Err(err) if is_missing_stream(&err) => Ok(StreamInfoGroupsReply::default()),
+            Err(err) => Err(StoreError::Storage(err)),
+        }
+    }
+
+    fn find_group<'a>(
+        &'a self,
+        info: &'a StreamInfoGroupsReply,
+        consumer_group: &str,
+    ) -> Option<&'a StreamInfoGroup> {
+        info.groups
+            .iter()
             .find(|group| group.name == consumer_group)
-            .ok_or_else(|| {
-                StoreError::NotFound(format!(
-                    "consumer group {consumer_group} not found for stream {}",
-                    self.stream_key
-                ))
-            })?;
-        let pending = group.lag.unwrap_or(0) as u64;
+    }
+
+    fn stats_from_group(
+        &self,
+        consumer_group: &str,
+        group: &StreamInfoGroup,
+    ) -> Result<BackgroundQueueStats> {
+        let pending = match group.lag {
+            Some(lag) => lag as u64,
+            None => {
+                return Err(StoreError::Unavailable(format!(
+                    "consumer group {consumer_group} lag is unavailable; stream entries may have been trimmed between last-delivered-id and tail"
+                )));
+            }
+        };
         let in_progress = group.pending as u64;
         Ok(BackgroundQueueStats {
             pending,
