@@ -3,6 +3,17 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="${PATH}:${HOME}/go/bin}"
+EXPECTED_PROTOC_VERSION="$(tr -d '[:space:]' < "${ROOT}/.protoc-version")"
+
+verify_protoc_version() {
+  local actual
+  actual="$(protoc --version | awk '{print $2}')"
+  if [[ "${actual}" != "${EXPECTED_PROTOC_VERSION}" ]]; then
+    echo "error: protoc ${actual} does not match pinned version ${EXPECTED_PROTOC_VERSION} (.protoc-version)" >&2
+    echo "Install protoc ${EXPECTED_PROTOC_VERSION} (CI uses arduino/setup-protoc with the same pin)." >&2
+    exit 1
+  fi
+}
 
 install_plugins() {
   # Pin plugin versions so generation stays reproducible across Go toolchains.
@@ -25,6 +36,7 @@ case "${1:-}" in
     install_plugins
     ;;
   *)
+    verify_protoc_version
     install_plugins
     generate_proto
     ;;

@@ -54,6 +54,21 @@ pub fn grpc_listen_addr_from_env() -> Result<String> {
     Ok(env::var("GRPC_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:50051".to_string()))
 }
 
+pub fn metrics_http_enabled_from_env() -> Result<bool> {
+    match env::var("METRICS_HTTP_ENABLED") {
+        Ok(value) => match value.to_lowercase().as_str() {
+            "1" | "true" | "yes" => Ok(true),
+            "0" | "false" | "no" => Ok(false),
+            _ => bail!("invalid METRICS_HTTP_ENABLED value {value:?}; use true/false"),
+        },
+        Err(_) => Ok(true),
+    }
+}
+
+pub fn metrics_http_listen_addr_from_env() -> Result<String> {
+    Ok(env::var("METRICS_HTTP_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string()))
+}
+
 pub fn grpc_max_message_bytes_from_env() -> Result<usize> {
     let bytes = parse_env_usize("GRPC_MAX_MESSAGE_BYTES", DEFAULT_GRPC_MAX_MESSAGE_BYTES)?;
     validate_grpc_max_message_bytes(bytes)?;
@@ -154,5 +169,23 @@ mod tests {
             stream_maxlen: 100,
         };
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_metrics_http_enabled_values() {
+        let var = "METRICS_HTTP_ENABLED";
+        std::env::set_var(var, "treu");
+        assert!(metrics_http_enabled_from_env().is_err());
+        std::env::remove_var(var);
+    }
+
+    #[test]
+    fn accepts_explicit_metrics_http_enabled_values() {
+        let var = "METRICS_HTTP_ENABLED";
+        std::env::set_var(var, "false");
+        assert!(!metrics_http_enabled_from_env().unwrap());
+        std::env::set_var(var, "true");
+        assert!(metrics_http_enabled_from_env().unwrap());
+        std::env::remove_var(var);
     }
 }

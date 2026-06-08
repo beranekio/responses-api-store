@@ -3,8 +3,8 @@ use std::time::Duration;
 use redis::{
     aio::ConnectionManager,
     streams::{
-        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamKey, StreamMaxlen,
-        StreamReadOptions, StreamReadReply,
+        StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamInfoGroup,
+        StreamInfoGroupsReply, StreamKey, StreamMaxlen, StreamReadOptions, StreamReadReply,
     },
     AsyncCommands, AsyncConnectionConfig, RedisError, RedisResult, Script,
 };
@@ -42,6 +42,16 @@ pub struct ClaimOptions {
 pub struct ClaimBatchResult {
     pub jobs: Vec<BackgroundJob>,
     pub pending_stream_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BackgroundQueueStats {
+    /// Jobs waiting to be claimed by a worker.
+    pub pending: u64,
+    /// Jobs claimed but not yet acknowledged (in-flight).
+    pub in_progress: u64,
+    /// Scalar for HPA/KEDA (pending + in_progress).
+    pub workload: u64,
 }
 
 impl BackgroundQueue {
@@ -193,6 +203,79 @@ impl BackgroundQueue {
         }
 
         Ok(result)
+    }
+
+    pub async fn stats(&self, consumer_group: &str) -> Result<BackgroundQueueStats> {
+        let mut connection = self.command_connection.clone();
+        if !self.stream_exists(&mut connection).await? {
+            return Ok(BackgroundQueueStats::default());
+        }
+
+        let mut info = self.load_stream_groups(&mut connection).await?;
+        if self.find_group(&info, consumer_group).is_none() && info.groups.is_empty() {
+            // Cold start only: stream has entries but no consumer groups yet.
+            self.ensure_consumer_group(consumer_group, "0-0").await?;
+            info = self.load_stream_groups(&mut connection).await?;
+        }
+        let group = self.find_group(&info, consumer_group).ok_or_else(|| {
+            StoreError::NotFound(format!(
+                "consumer group {consumer_group} not found for stream {}",
+                self.stream_key
+            ))
+        })?;
+        self.stats_from_group(consumer_group, group)
+    }
+
+    async fn stream_exists<C>(&self, connection: &mut C) -> Result<bool>
+    where
+        C: AsyncCommands + Send,
+    {
+        connection
+            .exists(&self.stream_key)
+            .await
+            .map_err(StoreError::Storage)
+    }
+
+    async fn load_stream_groups<C>(&self, connection: &mut C) -> Result<StreamInfoGroupsReply>
+    where
+        C: AsyncCommands + Send,
+    {
+        match connection.xinfo_groups(&self.stream_key).await {
+            Ok(info) => Ok(info),
+            Err(err) if is_missing_stream(&err) => Ok(StreamInfoGroupsReply::default()),
+            Err(err) => Err(StoreError::Storage(err)),
+        }
+    }
+
+    fn find_group<'a>(
+        &'a self,
+        info: &'a StreamInfoGroupsReply,
+        consumer_group: &str,
+    ) -> Option<&'a StreamInfoGroup> {
+        info.groups
+            .iter()
+            .find(|group| group.name == consumer_group)
+    }
+
+    fn stats_from_group(
+        &self,
+        consumer_group: &str,
+        group: &StreamInfoGroup,
+    ) -> Result<BackgroundQueueStats> {
+        let pending = match group.lag {
+            Some(lag) => lag as u64,
+            None => {
+                return Err(StoreError::Unavailable(format!(
+                    "consumer group {consumer_group} lag is unavailable; stream entries may have been trimmed between last-delivered-id and tail"
+                )));
+            }
+        };
+        let in_progress = group.pending as u64;
+        Ok(BackgroundQueueStats {
+            pending,
+            in_progress,
+            workload: pending.saturating_add(in_progress),
+        })
     }
 
     pub async fn acknowledge(&self, consumer_group: &str, stream_id: &str) -> Result<()> {
@@ -394,6 +477,10 @@ fn has_claimed_entries(result: &ClaimBatchResult) -> bool {
 
 fn is_busygroup(err: &RedisError) -> bool {
     err.to_string().contains("BUSYGROUP")
+}
+
+fn is_missing_stream(err: &RedisError) -> bool {
+    err.to_string().contains("no such key")
 }
 
 const AUTOCLAIM_CURSOR_SCRIPT: &str = r#"

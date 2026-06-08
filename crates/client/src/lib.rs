@@ -6,13 +6,13 @@ pub use error::{is_not_found, ClientError, Result};
 pub use responses_api_store_core::{
     build_cancelled_response, build_queued_response, build_upstream_request, generate_response_id,
     is_in_flight_background, response_id_from_value, stored_response_status, BackgroundJob,
-    StoredResponse,
+    BackgroundQueueStats, StoredResponse,
 };
 pub use responses_api_store_proto::v1::{
     AcknowledgeBackgroundJobRequest, ClaimBackgroundJobsRequest, DeleteResponseRequest,
     EnqueueBackgroundJobRequest, EnsureConsumerGroupRequest, GenerateResponseIdRequest,
-    GetResponseRequest, HealthRequest, ReconcileStaleResponseRequest, StoreResponseRequest,
-    UpdateResponseRequest,
+    GetBackgroundQueueStatsRequest, GetResponseRequest, HealthRequest,
+    ReconcileStaleResponseRequest, StoreResponseRequest, UpdateResponseRequest,
 };
 
 use responses_api_store_core::grpc_max_message_bytes_from_env;
@@ -193,6 +193,24 @@ impl Client {
             .await?
             .into_inner()
             .created)
+    }
+
+    pub async fn get_background_queue_stats(
+        &mut self,
+        consumer_group: &str,
+    ) -> Result<BackgroundQueueStats> {
+        let response = self
+            .inner
+            .get_background_queue_stats(GetBackgroundQueueStatsRequest {
+                consumer_group: consumer_group.to_string(),
+            })
+            .await?
+            .into_inner();
+        Ok(BackgroundQueueStats {
+            pending: response.pending,
+            in_progress: response.in_progress,
+            workload: response.workload,
+        })
     }
 
     pub async fn reconcile_stale_response(

@@ -5,7 +5,8 @@ pub mod queue;
 pub mod store;
 
 pub use config::{
-    grpc_listen_addr_from_env, grpc_max_message_bytes_from_env, service_version, StoreConfig,
+    grpc_listen_addr_from_env, grpc_max_message_bytes_from_env, metrics_http_enabled_from_env,
+    metrics_http_listen_addr_from_env, service_version, StoreConfig,
     DEFAULT_GRPC_MAX_MESSAGE_BYTES,
 };
 pub use error::{redis_error_kind, StoreError};
@@ -14,5 +15,5 @@ pub use model::{
     generate_response_id, is_deleted_tombstone, is_in_flight_background, response_id_from_value,
     response_store_key, stored_response_status, unix_seconds_now, BackgroundJob, StoredResponse,
 };
-pub use queue::{BackgroundQueue, ClaimBatchResult, ClaimOptions};
+pub use queue::{BackgroundQueue, BackgroundQueueStats, ClaimBatchResult, ClaimOptions};
 pub use store::ResponseStore;

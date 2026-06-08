@@ -55,12 +55,14 @@ Key environment variables (server defaults align with duihua-ai-services naming)
 | `BACKGROUND_QUEUE_STREAM_KEY` | `responses-api-store:background` | Background job stream |
 | `BACKGROUND_QUEUE_STREAM_MAXLEN` | `10000` | Approximate max stream length on enqueue (`0` disables trimming) |
 | `BACKGROUND_RESPONSE_STALE_SECONDS` | `3600` | Stale queued job threshold |
+| `METRICS_HTTP_ENABLED` | `true` | HTTP metrics listener for KEDA/Prometheus |
+| `METRICS_HTTP_LISTEN_ADDR` | `0.0.0.0:8080` | Metrics HTTP bind address |
 
 ## Recommended workflow
 
 1. Read `README.md` and the relevant crate or proto file before editing.
 2. Keep changes focused and minimal to the requested task.
-3. When changing the gRPC API, update `proto/` first, then regenerate or rebuild affected SDKs.
+3. When changing the gRPC API, update `proto/` first, then regenerate **both** SDKs: Rust stubs on `cargo build`, and Go stubs via `./scripts/generate-go.sh` (commit `sdk/go/` before opening the PR).
 4. Update `README.md` and Helm values/templates when behavior or configuration changes.
 5. Run targeted validation for the areas you modified (see [Validation commands](#validation-commands)).
 
@@ -68,7 +70,7 @@ Key environment variables (server defaults align with duihua-ai-services naming)
 
 1. Edit `proto/responsesapistore/v1/store.proto`.
 2. Rust stubs regenerate automatically on `cargo build` via `crates/proto/build.rs`.
-3. Regenerate Go stubs and verify they are committed:
+3. Regenerate Go stubs with the pinned `protoc` version (`.protoc-version`, currently `35.0`; CI uses `arduino/setup-protoc` with the same pin) and verify they are committed:
 
 ```bash
 ./scripts/generate-go.sh
@@ -192,6 +194,8 @@ When wiring this service into `duihua-ai-services`:
 
 ### Opening pull requests
 
+**Proto changes checklist:** if `proto/` changed in your branch, regenerate and commit `sdk/go/` before pushing. Use the pinned `protoc` from `.protoc-version` (see [Changing the gRPC API](#changing-the-grpc-api)); CI enforces `git diff --exit-code sdk/go` after `./scripts/generate-go.sh`. Rust proto stubs alone are not enough.
+
 When creating a PR, **add a GitHub label that identifies the agent** (or tooling) that authored it.
 
 | Agent / tool | Label |
@@ -220,6 +224,7 @@ If a command cannot be run in the current environment, state that clearly.
 ### Common pitfalls
 
 - Forgetting to regenerate Go protobuf stubs after `proto/` edits (CI will fail on `git diff --exit-code sdk/go`).
+- Regenerating `sdk/go/` with a different `protoc` than `.protoc-version` / CI; only the version header may change but `git diff --exit-code sdk/go` still fails.
 - Using `debian:*` or other shell-based runtime images; this project uses **distroless** only.
 - Assuming `StreamReadReply` has top-level `ids`; in `redis` 0.27 it is `keys: Vec<StreamKey>` with `ids` on each `StreamKey`.
 - Holding a `MutexGuard` across `.await` in tonic service handlers (not `Send`); clone state before awaiting.

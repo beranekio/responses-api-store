@@ -12,3 +12,8 @@ spec:
     - name: grpc
       port: {{ include "responses-api-store.servicePort" . }}
       targetPort: grpc
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ include "responses-api-store.metricsPort" . }}
+      targetPort: metrics
+    {{- end }}

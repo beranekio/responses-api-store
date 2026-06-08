@@ -29,6 +29,12 @@ grpc:
   # Max gRPC send/recv size in bytes (default 64 MiB; tonic default is 4 MiB).
   maxMessageBytes: 67108864
 
+metrics:
+  enabled: true
+  port: 8080
+  # Optional full bind address (e.g. 127.0.0.1:8080). When empty, uses 0.0.0.0:metrics.port.
+  listenAddr: ""
+
 store:
   keyPrefix: responses-api-store:responses
   ttlSeconds: 86400
