@@ -70,13 +70,10 @@ Key environment variables (server defaults align with duihua-ai-services naming)
 
 1. Edit `proto/responsesapistore/v1/store.proto`.
 2. Rust stubs regenerate automatically on `cargo build` via `crates/proto/build.rs`.
-3. Regenerate Go stubs with the **same `protoc` as CI** (`libprotoc 3.21.12` from Ubuntu `protobuf-compiler`) and verify they are committed:
+3. Regenerate Go stubs with the pinned `protoc` version (`.protoc-version`, currently `35.0`; CI uses `arduino/setup-protoc` with the same pin) and verify they are committed:
 
 ```bash
-# Match CI: apt protobuf-compiler on Ubuntu (protoc 3.21.12). Newer local protoc
-# versions only change the header comment and fail git diff --exit-code sdk/go.
-docker run --rm -v "$PWD:/workspace" -w /workspace golang:1.24-bookworm \
-  bash -c 'apt-get update -qq && apt-get install -y -qq protobuf-compiler git >/dev/null && ./scripts/generate-go.sh'
+./scripts/generate-go.sh
 git diff --exit-code sdk/go
 ```
 
@@ -197,7 +194,7 @@ When wiring this service into `duihua-ai-services`:
 
 ### Opening pull requests
 
-**Proto changes checklist:** if `proto/` changed in your branch, regenerate and commit `sdk/go/` before pushing. Use `protoc 3.21.12` (see [Changing the gRPC API](#changing-the-grpc-api)); CI enforces `git diff --exit-code sdk/go` after `./scripts/generate-go.sh`. Rust proto stubs alone are not enough.
+**Proto changes checklist:** if `proto/` changed in your branch, regenerate and commit `sdk/go/` before pushing. Use the pinned `protoc` from `.protoc-version` (see [Changing the gRPC API](#changing-the-grpc-api)); CI enforces `git diff --exit-code sdk/go` after `./scripts/generate-go.sh`. Rust proto stubs alone are not enough.
 
 When creating a PR, **add a GitHub label that identifies the agent** (or tooling) that authored it.
 
@@ -227,7 +224,7 @@ If a command cannot be run in the current environment, state that clearly.
 ### Common pitfalls
 
 - Forgetting to regenerate Go protobuf stubs after `proto/` edits (CI will fail on `git diff --exit-code sdk/go`).
-- Regenerating `sdk/go/` with a newer local `protoc` than CI (`3.21.12`); only the version header changes but the check still fails.
+- Regenerating `sdk/go/` with a different `protoc` than `.protoc-version` / CI; only the version header may change but `git diff --exit-code sdk/go` still fails.
 - Using `debian:*` or other shell-based runtime images; this project uses **distroless** only.
 - Assuming `StreamReadReply` has top-level `ids`; in `redis` 0.27 it is `keys: Vec<StreamKey>` with `ids` on each `StreamKey`.
 - Holding a `MutexGuard` across `.await` in tonic service handlers (not `Send`); clone state before awaiting.

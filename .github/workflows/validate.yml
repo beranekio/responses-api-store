@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned protoc for reproducible Go stub generation (see .protoc-version).
+  # Ubuntu apt protobuf-compiler is too old (3.21.x) for current toolchains.
+  PROTOC_VERSION: "35.0"
+
 jobs:
   rust:
     name: Rust checks
@@ -29,7 +34,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust toolchain
         run: |
@@ -59,7 +67,10 @@ jobs:
           cache-dependency-path: sdk/go/go.sum
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify generated Go protobuf
         run: |
@@ -151,7 +162,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust toolchain
         run: |
@@ -227,7 +241,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust toolchain
         run: |
