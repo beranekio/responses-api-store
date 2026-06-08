@@ -79,6 +79,10 @@ charts/responses-api-store/    # Helm subchart
 
 The service exposes store-agnostic queue depth for autoscaling without Valkey credentials or Redis Streams semantics.
 
+**Requirements:** background queue stats use the Redis Streams consumer-group `lag` field (added in Redis 7.0). Use Valkey/Redis 7+ for KEDA autoscaling; older servers return `UNAVAILABLE` for stats RPCs when `lag` is missing.
+
+On cold start, stats auto-create a consumer group only when the stream exists but has no groups yet (for example jobs enqueued before the first worker starts). A mistyped `consumer_group` while other groups already exist returns not-found rather than creating an orphan group.
+
 **gRPC:** `GetBackgroundQueueStats` returns:
 
 | Field | Meaning |

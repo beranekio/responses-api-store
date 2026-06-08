@@ -111,7 +111,11 @@ async fn stats_for_query(
 
     match queue.stats(&consumer_group).await {
         Ok(stats) => Ok((consumer_group, stats)),
-        Err(StoreError::NotFound(_)) => Ok((consumer_group, BackgroundQueueStats::default())),
+        Err(StoreError::NotFound(message)) => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response()),
         Err(StoreError::InvalidArgument(message)) => Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": message })),

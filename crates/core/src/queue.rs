@@ -207,9 +207,13 @@ impl BackgroundQueue {
 
     pub async fn stats(&self, consumer_group: &str) -> Result<BackgroundQueueStats> {
         let mut connection = self.command_connection.clone();
+        if !self.stream_exists(&mut connection).await? {
+            return Ok(BackgroundQueueStats::default());
+        }
+
         let mut info = self.load_stream_groups(&mut connection).await?;
-        if self.find_group(&info, consumer_group).is_none() {
-            // Cold start: jobs may be enqueued before any worker calls EnsureConsumerGroup.
+        if self.find_group(&info, consumer_group).is_none() && info.groups.is_empty() {
+            // Cold start only: stream has entries but no consumer groups yet.
             self.ensure_consumer_group(consumer_group, "0-0").await?;
             info = self.load_stream_groups(&mut connection).await?;
         }
@@ -220,6 +224,16 @@ impl BackgroundQueue {
             ))
         })?;
         self.stats_from_group(consumer_group, group)
+    }
+
+    async fn stream_exists<C>(&self, connection: &mut C) -> Result<bool>
+    where
+        C: AsyncCommands + Send,
+    {
+        connection
+            .exists(&self.stream_key)
+            .await
+            .map_err(StoreError::Storage)
     }
 
     async fn load_stream_groups<C>(&self, connection: &mut C) -> Result<StreamInfoGroupsReply>

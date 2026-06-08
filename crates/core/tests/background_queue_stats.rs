@@ -110,6 +110,43 @@ async fn stats_report_zero_for_empty_queue() {
 }
 
 #[tokio::test]
+async fn stats_reject_unknown_consumer_group_when_others_exist() {
+    let redis_url = match std::env::var("RESPONSE_ID_STORE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("skipping background_queue_stats test: RESPONSE_ID_STORE_URL unset");
+            return;
+        }
+    };
+
+    let Some((queue, store, consumer_group, response_id, _)) = setup(&redis_url).await else {
+        eprintln!("skipping background_queue_stats test: redis unavailable");
+        return;
+    };
+
+    store
+        .store(&response_id, &sample_record(&response_id), None)
+        .await
+        .expect("store response");
+    queue.enqueue(&response_id).await.expect("enqueue job");
+
+    let err = queue
+        .stats("definitely-not-this-group")
+        .await
+        .expect_err("unknown group should not be auto-created");
+    assert!(
+        err.to_string()
+            .contains("consumer group definitely-not-this-group not found"),
+        "unexpected error: {err}"
+    );
+    let stats = queue
+        .stats(&consumer_group)
+        .await
+        .expect("original consumer group still works");
+    assert_eq!(stats.pending, 1);
+}
+
+#[tokio::test]
 async fn stats_auto_create_consumer_group_for_enqueued_jobs() {
     let redis_url = match std::env::var("RESPONSE_ID_STORE_URL") {
         Ok(url) => url,

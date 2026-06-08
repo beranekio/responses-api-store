@@ -54,10 +54,14 @@ pub fn grpc_listen_addr_from_env() -> Result<String> {
     Ok(env::var("GRPC_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:50051".to_string()))
 }
 
-pub fn metrics_http_enabled_from_env() -> bool {
+pub fn metrics_http_enabled_from_env() -> Result<bool> {
     match env::var("METRICS_HTTP_ENABLED") {
-        Ok(value) => matches!(value.to_lowercase().as_str(), "1" | "true" | "yes"),
-        Err(_) => true,
+        Ok(value) => match value.to_lowercase().as_str() {
+            "1" | "true" | "yes" => Ok(true),
+            "0" | "false" | "no" => Ok(false),
+            _ => bail!("invalid METRICS_HTTP_ENABLED value {value:?}; use true/false"),
+        },
+        Err(_) => Ok(true),
     }
 }
 
@@ -165,5 +169,23 @@ mod tests {
             stream_maxlen: 100,
         };
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_metrics_http_enabled_values() {
+        let var = "METRICS_HTTP_ENABLED";
+        std::env::set_var(var, "treu");
+        assert!(metrics_http_enabled_from_env().is_err());
+        std::env::remove_var(var);
+    }
+
+    #[test]
+    fn accepts_explicit_metrics_http_enabled_values() {
+        let var = "METRICS_HTTP_ENABLED";
+        std::env::set_var(var, "false");
+        assert!(!metrics_http_enabled_from_env().unwrap());
+        std::env::set_var(var, "true");
+        assert!(metrics_http_enabled_from_env().unwrap());
+        std::env::remove_var(var);
     }
 }

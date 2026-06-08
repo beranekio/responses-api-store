@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
         .max_decoding_message_size(max_message_bytes)
         .max_encoding_message_size(max_message_bytes);
 
-    if metrics_http_enabled_from_env() {
+    if metrics_http_enabled_from_env().context("resolve METRICS_HTTP_ENABLED")? {
         let metrics_addr =
             metrics_http_listen_addr_from_env().context("resolve metrics HTTP listen address")?;
         let metrics_listener = tokio::net::TcpListener::bind(&metrics_addr)
