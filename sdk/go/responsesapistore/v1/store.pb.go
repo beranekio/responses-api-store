@@ -709,19 +709,74 @@ func (x *BackgroundJob) GetIdleMs() uint64 {
 	return 0
 }
 
+type PendingBackgroundJob struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	ResponseId    string                 `protobuf:"bytes,2,opt,name=response_id,json=responseId,proto3" json:"response_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PendingBackgroundJob) Reset() {
+	*x = PendingBackgroundJob{}
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PendingBackgroundJob) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PendingBackgroundJob) ProtoMessage() {}
+
+func (x *PendingBackgroundJob) ProtoReflect() protoreflect.Message {
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PendingBackgroundJob.ProtoReflect.Descriptor instead.
+func (*PendingBackgroundJob) Descriptor() ([]byte, []int) {
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PendingBackgroundJob) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *PendingBackgroundJob) GetResponseId() string {
+	if x != nil {
+		return x.ResponseId
+	}
+	return ""
+}
+
 type ClaimBackgroundJobsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Jobs  []*BackgroundJob       `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
 	// Stream IDs claimed from Redis but not hydrated (e.g. transient load errors).
 	// Entries remain in the consumer group PEL until acknowledged or autoclaimed.
+	// Deprecated: use pending_jobs, which includes response_id for worker-side retry.
 	PendingStreamIds []string `protobuf:"bytes,2,rep,name=pending_stream_ids,json=pendingStreamIds,proto3" json:"pending_stream_ids,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Claimed stream entries that could not be hydrated; includes response_id for retry.
+	PendingJobs   []*PendingBackgroundJob `protobuf:"bytes,3,rep,name=pending_jobs,json=pendingJobs,proto3" json:"pending_jobs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ClaimBackgroundJobsResponse) Reset() {
 	*x = ClaimBackgroundJobsResponse{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[13]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -733,7 +788,7 @@ func (x *ClaimBackgroundJobsResponse) String() string {
 func (*ClaimBackgroundJobsResponse) ProtoMessage() {}
 
 func (x *ClaimBackgroundJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[13]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -746,7 +801,7 @@ func (x *ClaimBackgroundJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClaimBackgroundJobsResponse.ProtoReflect.Descriptor instead.
 func (*ClaimBackgroundJobsResponse) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{13}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ClaimBackgroundJobsResponse) GetJobs() []*BackgroundJob {
@@ -763,6 +818,13 @@ func (x *ClaimBackgroundJobsResponse) GetPendingStreamIds() []string {
 	return nil
 }
 
+func (x *ClaimBackgroundJobsResponse) GetPendingJobs() []*PendingBackgroundJob {
+	if x != nil {
+		return x.PendingJobs
+	}
+	return nil
+}
+
 type AcknowledgeBackgroundJobRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
@@ -773,7 +835,7 @@ type AcknowledgeBackgroundJobRequest struct {
 
 func (x *AcknowledgeBackgroundJobRequest) Reset() {
 	*x = AcknowledgeBackgroundJobRequest{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[14]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -785,7 +847,7 @@ func (x *AcknowledgeBackgroundJobRequest) String() string {
 func (*AcknowledgeBackgroundJobRequest) ProtoMessage() {}
 
 func (x *AcknowledgeBackgroundJobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[14]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -798,7 +860,7 @@ func (x *AcknowledgeBackgroundJobRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcknowledgeBackgroundJobRequest.ProtoReflect.Descriptor instead.
 func (*AcknowledgeBackgroundJobRequest) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{14}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AcknowledgeBackgroundJobRequest) GetStreamId() string {
@@ -823,7 +885,7 @@ type AcknowledgeBackgroundJobResponse struct {
 
 func (x *AcknowledgeBackgroundJobResponse) Reset() {
 	*x = AcknowledgeBackgroundJobResponse{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[15]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -835,7 +897,7 @@ func (x *AcknowledgeBackgroundJobResponse) String() string {
 func (*AcknowledgeBackgroundJobResponse) ProtoMessage() {}
 
 func (x *AcknowledgeBackgroundJobResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[15]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -848,7 +910,7 @@ func (x *AcknowledgeBackgroundJobResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcknowledgeBackgroundJobResponse.ProtoReflect.Descriptor instead.
 func (*AcknowledgeBackgroundJobResponse) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{15}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{16}
 }
 
 type EnsureConsumerGroupRequest struct {
@@ -862,7 +924,7 @@ type EnsureConsumerGroupRequest struct {
 
 func (x *EnsureConsumerGroupRequest) Reset() {
 	*x = EnsureConsumerGroupRequest{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[16]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -874,7 +936,7 @@ func (x *EnsureConsumerGroupRequest) String() string {
 func (*EnsureConsumerGroupRequest) ProtoMessage() {}
 
 func (x *EnsureConsumerGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[16]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -887,7 +949,7 @@ func (x *EnsureConsumerGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureConsumerGroupRequest.ProtoReflect.Descriptor instead.
 func (*EnsureConsumerGroupRequest) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{16}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *EnsureConsumerGroupRequest) GetConsumerGroup() string {
@@ -913,7 +975,7 @@ type EnsureConsumerGroupResponse struct {
 
 func (x *EnsureConsumerGroupResponse) Reset() {
 	*x = EnsureConsumerGroupResponse{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[17]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -925,7 +987,7 @@ func (x *EnsureConsumerGroupResponse) String() string {
 func (*EnsureConsumerGroupResponse) ProtoMessage() {}
 
 func (x *EnsureConsumerGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[17]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -938,7 +1000,7 @@ func (x *EnsureConsumerGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureConsumerGroupResponse.ProtoReflect.Descriptor instead.
 func (*EnsureConsumerGroupResponse) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{17}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *EnsureConsumerGroupResponse) GetCreated() bool {
@@ -957,7 +1019,7 @@ type GetBackgroundQueueStatsRequest struct {
 
 func (x *GetBackgroundQueueStatsRequest) Reset() {
 	*x = GetBackgroundQueueStatsRequest{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[18]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -969,7 +1031,7 @@ func (x *GetBackgroundQueueStatsRequest) String() string {
 func (*GetBackgroundQueueStatsRequest) ProtoMessage() {}
 
 func (x *GetBackgroundQueueStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[18]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -982,7 +1044,7 @@ func (x *GetBackgroundQueueStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackgroundQueueStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetBackgroundQueueStatsRequest) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{18}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetBackgroundQueueStatsRequest) GetConsumerGroup() string {
@@ -1006,7 +1068,7 @@ type GetBackgroundQueueStatsResponse struct {
 
 func (x *GetBackgroundQueueStatsResponse) Reset() {
 	*x = GetBackgroundQueueStatsResponse{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[19]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1018,7 +1080,7 @@ func (x *GetBackgroundQueueStatsResponse) String() string {
 func (*GetBackgroundQueueStatsResponse) ProtoMessage() {}
 
 func (x *GetBackgroundQueueStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[19]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1031,7 +1093,7 @@ func (x *GetBackgroundQueueStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackgroundQueueStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetBackgroundQueueStatsResponse) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{19}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetBackgroundQueueStatsResponse) GetPending() uint64 {
@@ -1065,7 +1127,7 @@ type ReconcileStaleResponseRequest struct {
 
 func (x *ReconcileStaleResponseRequest) Reset() {
 	*x = ReconcileStaleResponseRequest{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[20]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1077,7 +1139,7 @@ func (x *ReconcileStaleResponseRequest) String() string {
 func (*ReconcileStaleResponseRequest) ProtoMessage() {}
 
 func (x *ReconcileStaleResponseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[20]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1090,7 +1152,7 @@ func (x *ReconcileStaleResponseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconcileStaleResponseRequest.ProtoReflect.Descriptor instead.
 func (*ReconcileStaleResponseRequest) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{20}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ReconcileStaleResponseRequest) GetResponseId() string {
@@ -1117,7 +1179,7 @@ type ReconcileStaleResponseResponse struct {
 
 func (x *ReconcileStaleResponseResponse) Reset() {
 	*x = ReconcileStaleResponseResponse{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[21]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1129,7 +1191,7 @@ func (x *ReconcileStaleResponseResponse) String() string {
 func (*ReconcileStaleResponseResponse) ProtoMessage() {}
 
 func (x *ReconcileStaleResponseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[21]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1142,7 +1204,7 @@ func (x *ReconcileStaleResponseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReconcileStaleResponseResponse.ProtoReflect.Descriptor instead.
 func (*ReconcileStaleResponseResponse) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{21}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ReconcileStaleResponseResponse) GetRecord() *StoredResponse {
@@ -1167,7 +1229,7 @@ type GenerateResponseIdRequest struct {
 
 func (x *GenerateResponseIdRequest) Reset() {
 	*x = GenerateResponseIdRequest{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[22]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1241,7 @@ func (x *GenerateResponseIdRequest) String() string {
 func (*GenerateResponseIdRequest) ProtoMessage() {}
 
 func (x *GenerateResponseIdRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[22]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1254,7 @@ func (x *GenerateResponseIdRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateResponseIdRequest.ProtoReflect.Descriptor instead.
 func (*GenerateResponseIdRequest) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{22}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{23}
 }
 
 type GenerateResponseIdResponse struct {
@@ -1204,7 +1266,7 @@ type GenerateResponseIdResponse struct {
 
 func (x *GenerateResponseIdResponse) Reset() {
 	*x = GenerateResponseIdResponse{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[23]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1216,7 +1278,7 @@ func (x *GenerateResponseIdResponse) String() string {
 func (*GenerateResponseIdResponse) ProtoMessage() {}
 
 func (x *GenerateResponseIdResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[23]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1229,7 +1291,7 @@ func (x *GenerateResponseIdResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateResponseIdResponse.ProtoReflect.Descriptor instead.
 func (*GenerateResponseIdResponse) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{23}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GenerateResponseIdResponse) GetResponseId() string {
@@ -1247,7 +1309,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[24]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1259,7 +1321,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[24]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1272,7 +1334,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{24}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{25}
 }
 
 type HealthResponse struct {
@@ -1285,7 +1347,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[25]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1297,7 +1359,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_responsesapistore_v1_store_proto_msgTypes[25]
+	mi := &file_responsesapistore_v1_store_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1310,7 +1372,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{25}
+	return file_responsesapistore_v1_store_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *HealthResponse) GetRedisOk() bool {
@@ -1383,10 +1445,15 @@ const file_responsesapistore_v1_store_proto_rawDesc = "" +
 	"\vautoclaimed\x18\x04 \x01(\bR\vautoclaimed\x12\x1c\n" +
 	"\aidle_ms\x18\x05 \x01(\x04H\x00R\x06idleMs\x88\x01\x01B\n" +
 	"\n" +
-	"\b_idle_ms\"\x84\x01\n" +
+	"\b_idle_ms\"T\n" +
+	"\x14PendingBackgroundJob\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x1f\n" +
+	"\vresponse_id\x18\x02 \x01(\tR\n" +
+	"responseId\"\xd3\x01\n" +
 	"\x1bClaimBackgroundJobsResponse\x127\n" +
 	"\x04jobs\x18\x01 \x03(\v2#.responsesapistore.v1.BackgroundJobR\x04jobs\x12,\n" +
-	"\x12pending_stream_ids\x18\x02 \x03(\tR\x10pendingStreamIds\"e\n" +
+	"\x12pending_stream_ids\x18\x02 \x03(\tR\x10pendingStreamIds\x12M\n" +
+	"\fpending_jobs\x18\x03 \x03(\v2*.responsesapistore.v1.PendingBackgroundJobR\vpendingJobs\"e\n" +
 	"\x1fAcknowledgeBackgroundJobRequest\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12%\n" +
 	"\x0econsumer_group\x18\x02 \x01(\tR\rconsumerGroup\"\"\n" +
@@ -1446,7 +1513,7 @@ func file_responsesapistore_v1_store_proto_rawDescGZIP() []byte {
 	return file_responsesapistore_v1_store_proto_rawDescData
 }
 
-var file_responsesapistore_v1_store_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_responsesapistore_v1_store_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_responsesapistore_v1_store_proto_goTypes = []any{
 	(*StoredResponse)(nil),                   // 0: responsesapistore.v1.StoredResponse
 	(*StoreResponseRequest)(nil),             // 1: responsesapistore.v1.StoreResponseRequest
@@ -1461,19 +1528,20 @@ var file_responsesapistore_v1_store_proto_goTypes = []any{
 	(*EnqueueBackgroundJobResponse)(nil),     // 10: responsesapistore.v1.EnqueueBackgroundJobResponse
 	(*ClaimBackgroundJobsRequest)(nil),       // 11: responsesapistore.v1.ClaimBackgroundJobsRequest
 	(*BackgroundJob)(nil),                    // 12: responsesapistore.v1.BackgroundJob
-	(*ClaimBackgroundJobsResponse)(nil),      // 13: responsesapistore.v1.ClaimBackgroundJobsResponse
-	(*AcknowledgeBackgroundJobRequest)(nil),  // 14: responsesapistore.v1.AcknowledgeBackgroundJobRequest
-	(*AcknowledgeBackgroundJobResponse)(nil), // 15: responsesapistore.v1.AcknowledgeBackgroundJobResponse
-	(*EnsureConsumerGroupRequest)(nil),       // 16: responsesapistore.v1.EnsureConsumerGroupRequest
-	(*EnsureConsumerGroupResponse)(nil),      // 17: responsesapistore.v1.EnsureConsumerGroupResponse
-	(*GetBackgroundQueueStatsRequest)(nil),   // 18: responsesapistore.v1.GetBackgroundQueueStatsRequest
-	(*GetBackgroundQueueStatsResponse)(nil),  // 19: responsesapistore.v1.GetBackgroundQueueStatsResponse
-	(*ReconcileStaleResponseRequest)(nil),    // 20: responsesapistore.v1.ReconcileStaleResponseRequest
-	(*ReconcileStaleResponseResponse)(nil),   // 21: responsesapistore.v1.ReconcileStaleResponseResponse
-	(*GenerateResponseIdRequest)(nil),        // 22: responsesapistore.v1.GenerateResponseIdRequest
-	(*GenerateResponseIdResponse)(nil),       // 23: responsesapistore.v1.GenerateResponseIdResponse
-	(*HealthRequest)(nil),                    // 24: responsesapistore.v1.HealthRequest
-	(*HealthResponse)(nil),                   // 25: responsesapistore.v1.HealthResponse
+	(*PendingBackgroundJob)(nil),             // 13: responsesapistore.v1.PendingBackgroundJob
+	(*ClaimBackgroundJobsResponse)(nil),      // 14: responsesapistore.v1.ClaimBackgroundJobsResponse
+	(*AcknowledgeBackgroundJobRequest)(nil),  // 15: responsesapistore.v1.AcknowledgeBackgroundJobRequest
+	(*AcknowledgeBackgroundJobResponse)(nil), // 16: responsesapistore.v1.AcknowledgeBackgroundJobResponse
+	(*EnsureConsumerGroupRequest)(nil),       // 17: responsesapistore.v1.EnsureConsumerGroupRequest
+	(*EnsureConsumerGroupResponse)(nil),      // 18: responsesapistore.v1.EnsureConsumerGroupResponse
+	(*GetBackgroundQueueStatsRequest)(nil),   // 19: responsesapistore.v1.GetBackgroundQueueStatsRequest
+	(*GetBackgroundQueueStatsResponse)(nil),  // 20: responsesapistore.v1.GetBackgroundQueueStatsResponse
+	(*ReconcileStaleResponseRequest)(nil),    // 21: responsesapistore.v1.ReconcileStaleResponseRequest
+	(*ReconcileStaleResponseResponse)(nil),   // 22: responsesapistore.v1.ReconcileStaleResponseResponse
+	(*GenerateResponseIdRequest)(nil),        // 23: responsesapistore.v1.GenerateResponseIdRequest
+	(*GenerateResponseIdResponse)(nil),       // 24: responsesapistore.v1.GenerateResponseIdResponse
+	(*HealthRequest)(nil),                    // 25: responsesapistore.v1.HealthRequest
+	(*HealthResponse)(nil),                   // 26: responsesapistore.v1.HealthResponse
 }
 var file_responsesapistore_v1_store_proto_depIdxs = []int32{
 	0,  // 0: responsesapistore.v1.StoreResponseRequest.record:type_name -> responsesapistore.v1.StoredResponse
@@ -1482,36 +1550,37 @@ var file_responsesapistore_v1_store_proto_depIdxs = []int32{
 	0,  // 3: responsesapistore.v1.EnqueueBackgroundJobRequest.record:type_name -> responsesapistore.v1.StoredResponse
 	0,  // 4: responsesapistore.v1.BackgroundJob.record:type_name -> responsesapistore.v1.StoredResponse
 	12, // 5: responsesapistore.v1.ClaimBackgroundJobsResponse.jobs:type_name -> responsesapistore.v1.BackgroundJob
-	0,  // 6: responsesapistore.v1.ReconcileStaleResponseResponse.record:type_name -> responsesapistore.v1.StoredResponse
-	1,  // 7: responsesapistore.v1.ResponsesApiStore.StoreResponse:input_type -> responsesapistore.v1.StoreResponseRequest
-	3,  // 8: responsesapistore.v1.ResponsesApiStore.GetResponse:input_type -> responsesapistore.v1.GetResponseRequest
-	5,  // 9: responsesapistore.v1.ResponsesApiStore.UpdateResponse:input_type -> responsesapistore.v1.UpdateResponseRequest
-	7,  // 10: responsesapistore.v1.ResponsesApiStore.DeleteResponse:input_type -> responsesapistore.v1.DeleteResponseRequest
-	9,  // 11: responsesapistore.v1.ResponsesApiStore.EnqueueBackgroundJob:input_type -> responsesapistore.v1.EnqueueBackgroundJobRequest
-	11, // 12: responsesapistore.v1.ResponsesApiStore.ClaimBackgroundJobs:input_type -> responsesapistore.v1.ClaimBackgroundJobsRequest
-	14, // 13: responsesapistore.v1.ResponsesApiStore.AcknowledgeBackgroundJob:input_type -> responsesapistore.v1.AcknowledgeBackgroundJobRequest
-	16, // 14: responsesapistore.v1.ResponsesApiStore.EnsureConsumerGroup:input_type -> responsesapistore.v1.EnsureConsumerGroupRequest
-	18, // 15: responsesapistore.v1.ResponsesApiStore.GetBackgroundQueueStats:input_type -> responsesapistore.v1.GetBackgroundQueueStatsRequest
-	20, // 16: responsesapistore.v1.ResponsesApiStore.ReconcileStaleResponse:input_type -> responsesapistore.v1.ReconcileStaleResponseRequest
-	22, // 17: responsesapistore.v1.ResponsesApiStore.GenerateResponseId:input_type -> responsesapistore.v1.GenerateResponseIdRequest
-	24, // 18: responsesapistore.v1.ResponsesApiStore.Health:input_type -> responsesapistore.v1.HealthRequest
-	2,  // 19: responsesapistore.v1.ResponsesApiStore.StoreResponse:output_type -> responsesapistore.v1.StoreResponseResponse
-	4,  // 20: responsesapistore.v1.ResponsesApiStore.GetResponse:output_type -> responsesapistore.v1.GetResponseResponse
-	6,  // 21: responsesapistore.v1.ResponsesApiStore.UpdateResponse:output_type -> responsesapistore.v1.UpdateResponseResponse
-	8,  // 22: responsesapistore.v1.ResponsesApiStore.DeleteResponse:output_type -> responsesapistore.v1.DeleteResponseResponse
-	10, // 23: responsesapistore.v1.ResponsesApiStore.EnqueueBackgroundJob:output_type -> responsesapistore.v1.EnqueueBackgroundJobResponse
-	13, // 24: responsesapistore.v1.ResponsesApiStore.ClaimBackgroundJobs:output_type -> responsesapistore.v1.ClaimBackgroundJobsResponse
-	15, // 25: responsesapistore.v1.ResponsesApiStore.AcknowledgeBackgroundJob:output_type -> responsesapistore.v1.AcknowledgeBackgroundJobResponse
-	17, // 26: responsesapistore.v1.ResponsesApiStore.EnsureConsumerGroup:output_type -> responsesapistore.v1.EnsureConsumerGroupResponse
-	19, // 27: responsesapistore.v1.ResponsesApiStore.GetBackgroundQueueStats:output_type -> responsesapistore.v1.GetBackgroundQueueStatsResponse
-	21, // 28: responsesapistore.v1.ResponsesApiStore.ReconcileStaleResponse:output_type -> responsesapistore.v1.ReconcileStaleResponseResponse
-	23, // 29: responsesapistore.v1.ResponsesApiStore.GenerateResponseId:output_type -> responsesapistore.v1.GenerateResponseIdResponse
-	25, // 30: responsesapistore.v1.ResponsesApiStore.Health:output_type -> responsesapistore.v1.HealthResponse
-	19, // [19:31] is the sub-list for method output_type
-	7,  // [7:19] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	13, // 6: responsesapistore.v1.ClaimBackgroundJobsResponse.pending_jobs:type_name -> responsesapistore.v1.PendingBackgroundJob
+	0,  // 7: responsesapistore.v1.ReconcileStaleResponseResponse.record:type_name -> responsesapistore.v1.StoredResponse
+	1,  // 8: responsesapistore.v1.ResponsesApiStore.StoreResponse:input_type -> responsesapistore.v1.StoreResponseRequest
+	3,  // 9: responsesapistore.v1.ResponsesApiStore.GetResponse:input_type -> responsesapistore.v1.GetResponseRequest
+	5,  // 10: responsesapistore.v1.ResponsesApiStore.UpdateResponse:input_type -> responsesapistore.v1.UpdateResponseRequest
+	7,  // 11: responsesapistore.v1.ResponsesApiStore.DeleteResponse:input_type -> responsesapistore.v1.DeleteResponseRequest
+	9,  // 12: responsesapistore.v1.ResponsesApiStore.EnqueueBackgroundJob:input_type -> responsesapistore.v1.EnqueueBackgroundJobRequest
+	11, // 13: responsesapistore.v1.ResponsesApiStore.ClaimBackgroundJobs:input_type -> responsesapistore.v1.ClaimBackgroundJobsRequest
+	15, // 14: responsesapistore.v1.ResponsesApiStore.AcknowledgeBackgroundJob:input_type -> responsesapistore.v1.AcknowledgeBackgroundJobRequest
+	17, // 15: responsesapistore.v1.ResponsesApiStore.EnsureConsumerGroup:input_type -> responsesapistore.v1.EnsureConsumerGroupRequest
+	19, // 16: responsesapistore.v1.ResponsesApiStore.GetBackgroundQueueStats:input_type -> responsesapistore.v1.GetBackgroundQueueStatsRequest
+	21, // 17: responsesapistore.v1.ResponsesApiStore.ReconcileStaleResponse:input_type -> responsesapistore.v1.ReconcileStaleResponseRequest
+	23, // 18: responsesapistore.v1.ResponsesApiStore.GenerateResponseId:input_type -> responsesapistore.v1.GenerateResponseIdRequest
+	25, // 19: responsesapistore.v1.ResponsesApiStore.Health:input_type -> responsesapistore.v1.HealthRequest
+	2,  // 20: responsesapistore.v1.ResponsesApiStore.StoreResponse:output_type -> responsesapistore.v1.StoreResponseResponse
+	4,  // 21: responsesapistore.v1.ResponsesApiStore.GetResponse:output_type -> responsesapistore.v1.GetResponseResponse
+	6,  // 22: responsesapistore.v1.ResponsesApiStore.UpdateResponse:output_type -> responsesapistore.v1.UpdateResponseResponse
+	8,  // 23: responsesapistore.v1.ResponsesApiStore.DeleteResponse:output_type -> responsesapistore.v1.DeleteResponseResponse
+	10, // 24: responsesapistore.v1.ResponsesApiStore.EnqueueBackgroundJob:output_type -> responsesapistore.v1.EnqueueBackgroundJobResponse
+	14, // 25: responsesapistore.v1.ResponsesApiStore.ClaimBackgroundJobs:output_type -> responsesapistore.v1.ClaimBackgroundJobsResponse
+	16, // 26: responsesapistore.v1.ResponsesApiStore.AcknowledgeBackgroundJob:output_type -> responsesapistore.v1.AcknowledgeBackgroundJobResponse
+	18, // 27: responsesapistore.v1.ResponsesApiStore.EnsureConsumerGroup:output_type -> responsesapistore.v1.EnsureConsumerGroupResponse
+	20, // 28: responsesapistore.v1.ResponsesApiStore.GetBackgroundQueueStats:output_type -> responsesapistore.v1.GetBackgroundQueueStatsResponse
+	22, // 29: responsesapistore.v1.ResponsesApiStore.ReconcileStaleResponse:output_type -> responsesapistore.v1.ReconcileStaleResponseResponse
+	24, // 30: responsesapistore.v1.ResponsesApiStore.GenerateResponseId:output_type -> responsesapistore.v1.GenerateResponseIdResponse
+	26, // 31: responsesapistore.v1.ResponsesApiStore.Health:output_type -> responsesapistore.v1.HealthResponse
+	20, // [20:32] is the sub-list for method output_type
+	8,  // [8:20] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_responsesapistore_v1_store_proto_init() }
@@ -1527,7 +1596,7 @@ func file_responsesapistore_v1_store_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_responsesapistore_v1_store_proto_rawDesc), len(file_responsesapistore_v1_store_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
