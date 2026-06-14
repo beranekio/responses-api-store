@@ -232,6 +232,14 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         Ok(Response::new(ClaimBackgroundJobsResponse {
             jobs,
             pending_stream_ids: batch.pending_stream_ids,
+            pending_jobs: batch
+                .pending_jobs
+                .into_iter()
+                .map(|job| responses_api_store_proto::v1::PendingBackgroundJob {
+                    stream_id: job.stream_id,
+                    response_id: job.response_id,
+                })
+                .collect(),
         }))
     }
 

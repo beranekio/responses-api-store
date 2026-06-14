@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 use crate::{
     error::{Result, StoreError},
-    model::{autoclaim_cursor_key, BackgroundJob},
+    model::{autoclaim_cursor_key, BackgroundJob, PendingBackgroundJob},
     store::ResponseStore,
 };
 
@@ -42,6 +42,7 @@ pub struct ClaimOptions {
 pub struct ClaimBatchResult {
     pub jobs: Vec<BackgroundJob>,
     pub pending_stream_ids: Vec<String>,
+    pub pending_jobs: Vec<PendingBackgroundJob>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -153,9 +154,10 @@ impl BackgroundQueue {
                 .await?;
             result.jobs.extend(batch.jobs);
             result.pending_stream_ids.extend(batch.pending_stream_ids);
+            result.pending_jobs.extend(batch.pending_jobs);
         }
 
-        let claimed = result.jobs.len() + result.pending_stream_ids.len();
+        let claimed = result.jobs.len() + result.pending_jobs.len();
         let remaining = options.count.saturating_sub(claimed);
         if remaining > 0 {
             let fill_block_ms = if has_claimed_entries(&result) {
@@ -190,6 +192,7 @@ impl BackgroundQueue {
                 Ok(batch) => {
                     result.jobs.extend(batch.jobs);
                     result.pending_stream_ids.extend(batch.pending_stream_ids);
+                    result.pending_jobs.extend(batch.pending_jobs);
                 }
                 Err(err) if has_claimed_entries(&result) => {
                     tracing::warn!(
@@ -398,6 +401,7 @@ impl BackgroundQueue {
     ) -> Result<ClaimBatchResult> {
         let mut jobs = Vec::with_capacity(entries.len());
         let mut pending_stream_ids = Vec::new();
+        let mut pending_jobs = Vec::new();
         for entry in entries {
             let response_id = match entry.get::<String>("response_id") {
                 Some(value) => value,
@@ -428,6 +432,10 @@ impl BackgroundQueue {
                         "deferring stream entry after transient load failure"
                     );
                     pending_stream_ids.push(entry.id.clone());
+                    pending_jobs.push(PendingBackgroundJob {
+                        stream_id: entry.id.clone(),
+                        response_id: response_id.clone(),
+                    });
                     continue;
                 }
                 Err(err) => return Err(err),
@@ -444,6 +452,7 @@ impl BackgroundQueue {
         Ok(ClaimBatchResult {
             jobs,
             pending_stream_ids,
+            pending_jobs,
         })
     }
 
@@ -472,7 +481,7 @@ impl BackgroundQueue {
 }
 
 fn has_claimed_entries(result: &ClaimBatchResult) -> bool {
-    !result.jobs.is_empty() || !result.pending_stream_ids.is_empty()
+    !result.jobs.is_empty() || !result.pending_jobs.is_empty()
 }
 
 fn is_busygroup(err: &RedisError) -> bool {
