@@ -100,11 +100,19 @@ message BackgroundJob {
   optional uint64 idle_ms = 5;
 }
 
+message PendingBackgroundJob {
+  string stream_id = 1;
+  string response_id = 2;
+}
+
 message ClaimBackgroundJobsResponse {
   repeated BackgroundJob jobs = 1;
   // Stream IDs claimed from Redis but not hydrated (e.g. transient load errors).
   // Entries remain in the consumer group PEL until acknowledged or autoclaimed.
+  // Deprecated: use pending_jobs, which includes response_id for worker-side retry.
   repeated string pending_stream_ids = 2;
+  // Claimed stream entries that could not be hydrated; includes response_id for retry.
+  repeated PendingBackgroundJob pending_jobs = 3;
 }
 
 message AcknowledgeBackgroundJobRequest {

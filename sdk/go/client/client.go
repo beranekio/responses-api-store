@@ -17,12 +17,12 @@ const DefaultMaxMessageBytes = 64 * 1024 * 1024
 
 // StoredResponse mirrors the gateway-owned record used by Responses API compatible services.
 type StoredResponse struct {
-	Upstream                 string          `json:"upstream"`
-	Response                 json.RawMessage `json:"response"`
-	Input                    []json.RawMessage `json:"input"`
-	PendingUpstreamRequest   json.RawMessage `json:"pending_upstream_request,omitempty"`
-	UpstreamAuthorization    string          `json:"upstream_authorization,omitempty"`
-	EnqueuedAt               *int64          `json:"enqueued_at,omitempty"`
+	Upstream               string            `json:"upstream"`
+	Response               json.RawMessage   `json:"response"`
+	Input                  []json.RawMessage `json:"input"`
+	PendingUpstreamRequest json.RawMessage   `json:"pending_upstream_request,omitempty"`
+	UpstreamAuthorization  string            `json:"upstream_authorization,omitempty"`
+	EnqueuedAt             *int64            `json:"enqueued_at,omitempty"`
 }
 
 // BackgroundJob is a claimed background queue message with its stored record.
@@ -32,6 +32,12 @@ type BackgroundJob struct {
 	Record      StoredResponse
 	Autoclaimed bool
 	IdleMS      *uint64
+}
+
+// PendingBackgroundJob is a claimed stream entry that could not be hydrated.
+type PendingBackgroundJob struct {
+	StreamID   string
+	ResponseID string
 }
 
 // Client wraps the generated gRPC client with JSON-friendly helpers.
@@ -102,7 +108,7 @@ func (c *Client) StoreResponse(ctx context.Context, responseID string, record St
 // GetResponse loads a stored response record.
 func (c *Client) GetResponse(ctx context.Context, responseID string, reconcileStale bool) (StoredResponse, error) {
 	resp, err := c.client.GetResponse(ctx, &pb.GetResponseRequest{
-		ResponseId:      responseID,
+		ResponseId:     responseID,
 		ReconcileStale: reconcileStale,
 	})
 	if err != nil {
@@ -144,6 +150,7 @@ func (c *Client) EnqueueBackgroundJob(ctx context.Context, responseID string, re
 type ClaimBackgroundJobsResult struct {
 	Jobs             []BackgroundJob
 	PendingStreamIDs []string
+	PendingJobs      []PendingBackgroundJob
 }
 
 // ClaimBackgroundJobs claims one or more jobs from the background queue.
@@ -167,9 +174,17 @@ func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroun
 			IdleMS:      job.IdleMs,
 		})
 	}
+	pendingJobs := make([]PendingBackgroundJob, 0, len(resp.GetPendingJobs()))
+	for _, pending := range resp.GetPendingJobs() {
+		pendingJobs = append(pendingJobs, PendingBackgroundJob{
+			StreamID:   pending.GetStreamId(),
+			ResponseID: pending.GetResponseId(),
+		})
+	}
 	return ClaimBackgroundJobsResult{
 		Jobs:             jobs,
 		PendingStreamIDs: resp.GetPendingStreamIds(),
+		PendingJobs:      pendingJobs,
 	}, nil
 }
 
@@ -253,13 +268,13 @@ func toProtoRecord(responseID string, record StoredResponse) (*pb.StoredResponse
 	}
 
 	return &pb.StoredResponse{
-		ResponseId:                  responseID,
-		Upstream:                    record.Upstream,
-		ResponseJson:                string(record.Response),
-		InputJson:                   inputJSON,
-		PendingUpstreamRequestJson:  optionalString(pending),
-		UpstreamAuthorization:       optionalString(record.UpstreamAuthorization),
-		EnqueuedAt:                  record.EnqueuedAt,
+		ResponseId:                 responseID,
+		Upstream:                   record.Upstream,
+		ResponseJson:               string(record.Response),
+		InputJson:                  inputJSON,
+		PendingUpstreamRequestJson: optionalString(pending),
+		UpstreamAuthorization:      optionalString(record.UpstreamAuthorization),
+		EnqueuedAt:                 record.EnqueuedAt,
 	}, nil
 }
 

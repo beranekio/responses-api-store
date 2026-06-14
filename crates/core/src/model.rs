@@ -23,6 +23,12 @@ pub struct BackgroundJob {
     pub idle_ms: Option<u64>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingBackgroundJob {
+    pub stream_id: String,
+    pub response_id: String,
+}
+
 pub fn response_store_key(prefix: &str, response_id: &str) -> String {
     format!("{prefix}:{response_id}")
 }

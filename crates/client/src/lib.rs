@@ -6,7 +6,7 @@ pub use error::{is_not_found, ClientError, Result};
 pub use responses_api_store_core::{
     build_cancelled_response, build_queued_response, build_upstream_request, generate_response_id,
     is_in_flight_background, response_id_from_value, stored_response_status, BackgroundJob,
-    BackgroundQueueStats, StoredResponse,
+    BackgroundQueueStats, PendingBackgroundJob, StoredResponse,
 };
 pub use responses_api_store_proto::v1::{
     AcknowledgeBackgroundJobRequest, ClaimBackgroundJobsRequest, DeleteResponseRequest,
@@ -27,6 +27,7 @@ pub struct Client {
 pub struct ClaimBackgroundJobsResult {
     pub jobs: Vec<BackgroundJob>,
     pub pending_stream_ids: Vec<String>,
+    pub pending_jobs: Vec<PendingBackgroundJob>,
 }
 
 impl Client {
@@ -159,9 +160,18 @@ impl Client {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        let pending_jobs = response
+            .pending_jobs
+            .into_iter()
+            .map(|job| PendingBackgroundJob {
+                stream_id: job.stream_id,
+                response_id: job.response_id,
+            })
+            .collect();
         Ok(ClaimBackgroundJobsResult {
             jobs,
             pending_stream_ids: response.pending_stream_ids,
+            pending_jobs,
         })
     }
 

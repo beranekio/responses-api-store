@@ -13,7 +13,8 @@ pub use error::{redis_error_kind, StoreError};
 pub use model::{
     autoclaim_cursor_key, build_cancelled_response, build_queued_response, build_upstream_request,
     generate_response_id, is_deleted_tombstone, is_in_flight_background, response_id_from_value,
-    response_store_key, stored_response_status, unix_seconds_now, BackgroundJob, StoredResponse,
+    response_store_key, stored_response_status, unix_seconds_now, BackgroundJob,
+    PendingBackgroundJob, StoredResponse,
 };
 pub use queue::{BackgroundQueue, BackgroundQueueStats, ClaimBatchResult, ClaimOptions};
 pub use store::ResponseStore;

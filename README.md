@@ -34,7 +34,7 @@ Protobuf definition: [`proto/responsesapistore/v1/store.proto`](proto/responsesa
 | `UpdateResponse` | Replace a stored record |
 | `DeleteResponse` | Delete or tombstone a record |
 | `EnqueueBackgroundJob` | Store a queued record and publish it to the background stream |
-| `ClaimBackgroundJobs` | Claim jobs for worker processing (`XREADGROUP` + `XAUTOCLAIM`); may return `pending_stream_ids` when record load fails transiently |
+| `ClaimBackgroundJobs` | Claim jobs for worker processing (`XREADGROUP` + `XAUTOCLAIM`); may return `pending_jobs` (and legacy `pending_stream_ids`) when record load fails transiently |
 | `AcknowledgeBackgroundJob` | Acknowledge successful job processing |
 | `EnsureConsumerGroup` | Bootstrap the Redis stream consumer group |
 | `ReconcileStaleResponse` | Mark stale queued responses as `failed` |
