@@ -31,7 +31,8 @@ type BackgroundJob struct {
 	ResponseID  string
 	Record      StoredResponse
 	Autoclaimed bool
-	IdleMS      *uint64
+	// Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
+	IdleMS *uint64
 }
 
 // PendingBackgroundJob is a claimed stream entry that could not be hydrated.
@@ -39,7 +40,8 @@ type PendingBackgroundJob struct {
 	StreamID    string
 	ResponseID  string
 	Autoclaimed bool
-	IdleMS      *uint64
+	// Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
+	IdleMS *uint64
 }
 
 // Client wraps the generated gRPC client with JSON-friendly helpers.

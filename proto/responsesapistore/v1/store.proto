@@ -96,7 +96,7 @@ message BackgroundJob {
   StoredResponse record = 3;
   // True when the job was reclaimed from another consumer.
   bool autoclaimed = 4;
-  // Idle time in milliseconds when autoclaimed.
+  // Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
   optional uint64 idle_ms = 5;
 }
 

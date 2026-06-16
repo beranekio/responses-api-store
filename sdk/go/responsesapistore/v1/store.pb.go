@@ -638,7 +638,7 @@ type BackgroundJob struct {
 	Record     *StoredResponse        `protobuf:"bytes,3,opt,name=record,proto3" json:"record,omitempty"`
 	// True when the job was reclaimed from another consumer.
 	Autoclaimed bool `protobuf:"varint,4,opt,name=autoclaimed,proto3" json:"autoclaimed,omitempty"`
-	// Idle time in milliseconds when autoclaimed.
+	// Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
 	IdleMs        *uint64 `protobuf:"varint,5,opt,name=idle_ms,json=idleMs,proto3,oneof" json:"idle_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
