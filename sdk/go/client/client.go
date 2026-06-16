@@ -164,6 +164,9 @@ func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroun
 
 	jobs := make([]BackgroundJob, 0, len(resp.GetJobs()))
 	for _, job := range resp.GetJobs() {
+		if job == nil {
+			continue
+		}
 		record, err := fromProtoRecord(job.GetRecord())
 		if err != nil {
 			return ClaimBackgroundJobsResult{}, err
@@ -178,6 +181,9 @@ func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroun
 	}
 	pendingJobs := make([]PendingBackgroundJob, 0, len(resp.GetPendingJobs()))
 	for _, pending := range resp.GetPendingJobs() {
+		if pending == nil {
+			continue
+		}
 		pendingJobs = append(pendingJobs, PendingBackgroundJob{
 			StreamID:    pending.GetStreamId(),
 			ResponseID:  pending.GetResponseId(),

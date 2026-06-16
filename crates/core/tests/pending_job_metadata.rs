@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 use responses_api_store_core::{
     build_queued_response, BackgroundQueue, ClaimOptions, PendingBackgroundJob, ResponseStore,
     StoredResponse,
 };
 use serde_json::json;
+use tokio::time::sleep;
 
 fn sample_record(response_id: &str) -> StoredResponse {
     let request = json!({
@@ -105,7 +108,8 @@ async fn autoclaimed_jobs_include_idle_metadata() {
     assert!(!first_claim.jobs[0].autoclaimed);
     assert_eq!(first_claim.jobs[0].idle_ms, None);
 
-    let autoclaim_min_idle_ms = 3000;
+    let autoclaim_min_idle_ms = 50;
+    sleep(Duration::from_millis(100)).await;
     let second_claim = queue
         .claim_jobs(
             &store,
