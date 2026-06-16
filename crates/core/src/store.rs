@@ -559,6 +559,7 @@ fn prepare_complete_background(
     if updated.response.get("status").is_none() {
         updated.response["status"] = Value::String("completed".to_string());
     }
+    updated.response["background"] = Value::Bool(true);
     updated.pending_upstream_request = None;
     updated.upstream_authorization = None;
 
