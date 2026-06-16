@@ -4,7 +4,8 @@ use redis::{
     aio::ConnectionManager,
     streams::{
         StreamAutoClaimOptions, StreamAutoClaimReply, StreamId, StreamInfoGroup,
-        StreamInfoGroupsReply, StreamKey, StreamMaxlen, StreamReadOptions, StreamReadReply,
+        StreamInfoGroupsReply, StreamKey, StreamMaxlen, StreamPendingCountReply, StreamRangeReply,
+        StreamReadOptions, StreamReadReply,
     },
     AsyncCommands, AsyncConnectionConfig, RedisError, RedisResult, Script,
 };
@@ -232,7 +233,8 @@ impl BackgroundQueue {
                 self.stream_key
             ))
         })?;
-        self.stats_from_group(consumer_group, group)
+        self.stats_from_group(&mut connection, consumer_group, group)
+            .await
     }
 
     async fn stream_exists<C>(&self, connection: &mut C) -> Result<bool>
@@ -266,25 +268,105 @@ impl BackgroundQueue {
             .find(|group| group.name == consumer_group)
     }
 
-    fn stats_from_group(
+    async fn stats_from_group<C>(
         &self,
+        connection: &mut C,
         consumer_group: &str,
         group: &StreamInfoGroup,
-    ) -> Result<BackgroundQueueStats> {
+    ) -> Result<BackgroundQueueStats>
+    where
+        C: AsyncCommands + Send,
+    {
         let pending = match group.lag {
             Some(lag) => lag as u64,
             None => {
-                return Err(StoreError::Unavailable(format!(
-                    "consumer group {consumer_group} lag is unavailable; stream entries may have been trimmed between last-delivered-id and tail"
-                )));
+                tracing::debug!(
+                    consumer_group,
+                    last_delivered_id = group.last_delivered_id,
+                    "consumer group lag unavailable; using XRANGE fallback for pending count"
+                );
+                self.count_pending_fallback(connection, &group.last_delivered_id)
+                    .await?
             }
         };
-        let in_progress = group.pending as u64;
+        let in_progress = self
+            .count_processable_in_progress(connection, consumer_group)
+            .await?;
         Ok(BackgroundQueueStats {
             pending,
             in_progress,
             workload: pending.saturating_add(in_progress),
         })
+    }
+
+    async fn count_pending_fallback<C>(
+        &self,
+        connection: &mut C,
+        last_delivered_id: &str,
+    ) -> Result<u64>
+    where
+        C: AsyncCommands + Send,
+    {
+        let start = exclusive_stream_start(last_delivered_id);
+        let reply: StreamRangeReply = connection
+            .xrange(&self.stream_key, &start, "+")
+            .await
+            .map_err(StoreError::Storage)?;
+        Ok(reply.ids.len() as u64)
+    }
+
+    async fn count_processable_in_progress<C>(
+        &self,
+        connection: &mut C,
+        consumer_group: &str,
+    ) -> Result<u64>
+    where
+        C: AsyncCommands + Send,
+    {
+        const PAGE_SIZE: usize = 100;
+        let mut total = 0u64;
+        let mut start = "-".to_string();
+        loop {
+            let reply: StreamPendingCountReply = connection
+                .xpending_count(
+                    &self.stream_key,
+                    consumer_group,
+                    start.as_str(),
+                    "+",
+                    PAGE_SIZE,
+                )
+                .await
+                .map_err(StoreError::Storage)?;
+            if reply.ids.is_empty() {
+                break;
+            }
+            for entry in &reply.ids {
+                if self.stream_entry_exists(connection, &entry.id).await? {
+                    total += 1;
+                } else {
+                    let _: i32 = connection
+                        .xack(&self.stream_key, consumer_group, &[entry.id.as_str()])
+                        .await
+                        .map_err(StoreError::Storage)?;
+                }
+            }
+            if reply.ids.len() < PAGE_SIZE {
+                break;
+            }
+            start = exclusive_stream_start(&reply.ids.last().expect("non-empty").id);
+        }
+        Ok(total)
+    }
+
+    async fn stream_entry_exists<C>(&self, connection: &mut C, stream_id: &str) -> Result<bool>
+    where
+        C: AsyncCommands + Send,
+    {
+        let reply: StreamRangeReply = connection
+            .xrange_count(&self.stream_key, stream_id, stream_id, 1)
+            .await
+            .map_err(StoreError::Storage)?;
+        Ok(!reply.ids.is_empty())
     }
 
     pub async fn acknowledge(&self, consumer_group: &str, stream_id: &str) -> Result<()> {
@@ -504,6 +586,14 @@ fn is_missing_stream(err: &RedisError) -> bool {
     err.to_string().contains("no such key")
 }
 
+fn exclusive_stream_start(stream_id: &str) -> String {
+    if stream_id == "0-0" || stream_id == "-" {
+        "-".to_string()
+    } else {
+        format!("({stream_id}")
+    }
+}
+
 const AUTOCLAIM_CURSOR_SCRIPT: &str = r#"
 local key = KEYS[1]
 local new_cursor = ARGV[1]
@@ -529,3 +619,19 @@ if new_ms > old_ms or (new_ms == old_ms and new_seq > old_seq) then
 end
 return 0
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::exclusive_stream_start;
+
+    #[test]
+    fn exclusive_stream_start_uses_open_range_from_origin() {
+        assert_eq!(exclusive_stream_start("0-0"), "-");
+        assert_eq!(exclusive_stream_start("-"), "-");
+    }
+
+    #[test]
+    fn exclusive_stream_start_excludes_last_delivered_id() {
+        assert_eq!(exclusive_stream_start("1746500000-0"), "(1746500000-0");
+    }
+}

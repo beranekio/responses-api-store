@@ -56,6 +56,17 @@ impl ResponseStore {
         Ok(())
     }
 
+    pub async fn redis_server_info(&self) -> Result<(String, bool)> {
+        let mut connection = self.connection.clone();
+        let info: String = redis::cmd("INFO")
+            .arg("server")
+            .query_async(&mut connection)
+            .await
+            .map_err(StoreError::Storage)?;
+        let version = parse_redis_version(&info).unwrap_or_default();
+        Ok((version.clone(), redis_version_supports_lag(&version)))
+    }
+
     pub async fn store(
         &self,
         response_id: &str,
@@ -333,6 +344,23 @@ fn reconcile_write_ttl(redis_ttl: i64, default_ttl_seconds: u64) -> u64 {
     }
 }
 
+fn parse_redis_version(info: &str) -> Option<String> {
+    for line in info.lines() {
+        if let Some(version) = line.strip_prefix("redis_version:") {
+            return Some(version.trim().to_string());
+        }
+    }
+    None
+}
+
+pub fn redis_version_supports_lag(version: &str) -> bool {
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|part| part.parse::<u32>().ok());
+    major.is_some_and(|major| major >= 7)
+}
+
 fn apply_stale_failure(stored: &mut StoredResponse, response_id: &str) {
     stored.response = json!({
         "id": response_id,
@@ -365,5 +393,13 @@ mod tests {
     #[test]
     fn reconcile_write_ttl_applies_default_when_key_has_no_expiry() {
         assert_eq!(reconcile_write_ttl(-1, 86_400), 86_400);
+    }
+
+    #[test]
+    fn redis_version_supports_lag_from_major_version() {
+        assert!(super::redis_version_supports_lag("7.0.15"));
+        assert!(super::redis_version_supports_lag("9.1.0"));
+        assert!(!super::redis_version_supports_lag("6.2.14"));
+        assert!(!super::redis_version_supports_lag(""));
     }
 }

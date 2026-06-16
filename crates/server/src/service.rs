@@ -352,9 +352,16 @@ impl ResponsesApiStore for ResponsesApiStoreService {
         _request: Request<HealthRequest>,
     ) -> Result<Response<HealthResponse>, Status> {
         let redis_ok = self.store.ping().await.is_ok();
+        let (redis_version, background_queue_lag_supported) = if redis_ok {
+            self.store.redis_server_info().await.unwrap_or_default()
+        } else {
+            (String::new(), false)
+        };
         Ok(Response::new(HealthResponse {
             redis_ok,
             version: responses_api_store_core::service_version().to_string(),
+            redis_version,
+            background_queue_lag_supported,
         }))
     }
 }
