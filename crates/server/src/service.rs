@@ -238,6 +238,8 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                 .map(|job| responses_api_store_proto::v1::PendingBackgroundJob {
                     stream_id: job.stream_id,
                     response_id: job.response_id,
+                    autoclaimed: job.autoclaimed,
+                    idle_ms: job.idle_ms,
                 })
                 .collect(),
         }))

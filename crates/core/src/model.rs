@@ -20,6 +20,7 @@ pub struct BackgroundJob {
     pub response_id: String,
     pub record: StoredResponse,
     pub autoclaimed: bool,
+    /// Minimum idle time in milliseconds when autoclaimed (from `autoclaim_min_idle_ms`).
     pub idle_ms: Option<u64>,
 }
 
@@ -27,6 +28,9 @@ pub struct BackgroundJob {
 pub struct PendingBackgroundJob {
     pub stream_id: String,
     pub response_id: String,
+    pub autoclaimed: bool,
+    /// Minimum idle time in milliseconds when autoclaimed (from `autoclaim_min_idle_ms`).
+    pub idle_ms: Option<u64>,
 }
 
 pub fn response_store_key(prefix: &str, response_id: &str) -> String {

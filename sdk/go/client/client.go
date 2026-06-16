@@ -31,13 +31,17 @@ type BackgroundJob struct {
 	ResponseID  string
 	Record      StoredResponse
 	Autoclaimed bool
-	IdleMS      *uint64
+	// Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
+	IdleMS *uint64
 }
 
 // PendingBackgroundJob is a claimed stream entry that could not be hydrated.
 type PendingBackgroundJob struct {
-	StreamID   string
-	ResponseID string
+	StreamID    string
+	ResponseID  string
+	Autoclaimed bool
+	// Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
+	IdleMS *uint64
 }
 
 // Client wraps the generated gRPC client with JSON-friendly helpers.
@@ -162,6 +166,9 @@ func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroun
 
 	jobs := make([]BackgroundJob, 0, len(resp.GetJobs()))
 	for _, job := range resp.GetJobs() {
+		if job == nil {
+			continue
+		}
 		record, err := fromProtoRecord(job.GetRecord())
 		if err != nil {
 			return ClaimBackgroundJobsResult{}, err
@@ -176,9 +183,14 @@ func (c *Client) ClaimBackgroundJobs(ctx context.Context, req *pb.ClaimBackgroun
 	}
 	pendingJobs := make([]PendingBackgroundJob, 0, len(resp.GetPendingJobs()))
 	for _, pending := range resp.GetPendingJobs() {
+		if pending == nil {
+			continue
+		}
 		pendingJobs = append(pendingJobs, PendingBackgroundJob{
-			StreamID:   pending.GetStreamId(),
-			ResponseID: pending.GetResponseId(),
+			StreamID:    pending.GetStreamId(),
+			ResponseID:  pending.GetResponseId(),
+			Autoclaimed: pending.GetAutoclaimed(),
+			IdleMS:      pending.IdleMs,
 		})
 	}
 	return ClaimBackgroundJobsResult{
