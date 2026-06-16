@@ -556,9 +556,7 @@ fn prepare_complete_background(
     let mut updated = stored.clone();
     updated.response = completed_response.clone();
     updated.response["id"] = Value::String(response_id.to_string());
-    if updated.response.get("status").is_none() {
-        updated.response["status"] = Value::String("completed".to_string());
-    }
+    updated.response["status"] = Value::String("completed".to_string());
     updated.response["background"] = Value::Bool(true);
     updated.pending_upstream_request = None;
     updated.upstream_authorization = None;

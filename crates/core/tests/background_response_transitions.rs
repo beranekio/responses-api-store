@@ -136,6 +136,60 @@ async fn complete_background_response_sets_background_marker() {
 }
 
 #[tokio::test]
+async fn complete_background_response_forces_completed_status() {
+    let redis_url = match std::env::var("RESPONSE_ID_STORE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!(
+                "skipping complete_background_response_forces_completed_status: RESPONSE_ID_STORE_URL unset"
+            );
+            return;
+        }
+    };
+
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let Some(store) = connect_store(&redis_url, suffix).await else {
+        eprintln!(
+            "skipping complete_background_response_forces_completed_status: redis unavailable"
+        );
+        return;
+    };
+
+    let response_id = format!("resp_{suffix}");
+    store
+        .store(&response_id, &queued_record(&response_id), None)
+        .await
+        .expect("store queued response");
+    store
+        .claim_background_response(&response_id)
+        .await
+        .expect("claim");
+
+    store
+        .complete_background_response(
+            &response_id,
+            json!({
+                "object": "response",
+                "status": "in_progress",
+                "output": [{"type": "message", "content": "done"}]
+            }),
+        )
+        .await
+        .expect("complete");
+
+    let loaded = store
+        .load(&response_id)
+        .await
+        .expect("load")
+        .expect("record exists");
+    assert_eq!(loaded.response["status"], "completed");
+    assert_eq!(loaded.response["background"], json!(true));
+}
+
+#[tokio::test]
 async fn complete_background_response_rejects_non_object_json() {
     let redis_url = match std::env::var("RESPONSE_ID_STORE_URL") {
         Ok(url) => url,
