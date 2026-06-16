@@ -14,7 +14,7 @@ use tokio::time::sleep;
 use crate::{
     error::{Result, StoreError},
     model::{autoclaim_cursor_key, BackgroundJob, PendingBackgroundJob},
-    store::ResponseStore,
+    store::{load_redis_capabilities, ResponseStore},
 };
 
 const LOAD_RETRY_ATTEMPTS: usize = 3;
@@ -233,8 +233,14 @@ impl BackgroundQueue {
                 self.stream_key
             ))
         })?;
-        self.stats_from_group(&mut connection, consumer_group, group)
-            .await
+        let capabilities = load_redis_capabilities(&self.client).await?;
+        self.stats_from_group(
+            &mut connection,
+            consumer_group,
+            group,
+            capabilities.exclusive_range_supported,
+        )
+        .await
     }
 
     async fn stream_exists<C>(&self, connection: &mut C) -> Result<bool>
@@ -273,6 +279,7 @@ impl BackgroundQueue {
         connection: &mut C,
         consumer_group: &str,
         group: &StreamInfoGroup,
+        exclusive_range_supported: bool,
     ) -> Result<BackgroundQueueStats>
     where
         C: AsyncCommands + Send,
@@ -285,12 +292,16 @@ impl BackgroundQueue {
                     last_delivered_id = group.last_delivered_id,
                     "consumer group lag unavailable; using XRANGE fallback for pending count"
                 );
-                self.count_pending_fallback(connection, &group.last_delivered_id)
-                    .await?
+                self.count_pending_fallback(
+                    connection,
+                    &group.last_delivered_id,
+                    exclusive_range_supported,
+                )
+                .await?
             }
         };
         let in_progress = self
-            .count_processable_in_progress(connection, consumer_group)
+            .count_processable_in_progress(connection, consumer_group, exclusive_range_supported)
             .await?;
         Ok(BackgroundQueueStats {
             pending,
@@ -303,22 +314,38 @@ impl BackgroundQueue {
         &self,
         connection: &mut C,
         last_delivered_id: &str,
+        exclusive_range_supported: bool,
     ) -> Result<u64>
     where
         C: AsyncCommands + Send,
     {
-        let start = exclusive_stream_start(last_delivered_id);
-        let reply: StreamRangeReply = connection
-            .xrange(&self.stream_key, &start, "+")
-            .await
-            .map_err(StoreError::Storage)?;
-        Ok(reply.ids.len() as u64)
+        const PAGE_SIZE: usize = 1000;
+        let mut total = 0u64;
+        let mut start =
+            stream_range_start_after(last_delivered_id, exclusive_range_supported, false);
+        loop {
+            let reply: StreamRangeReply = connection
+                .xrange_count(&self.stream_key, &start, "+", PAGE_SIZE)
+                .await
+                .map_err(StoreError::Storage)?;
+            if reply.ids.is_empty() {
+                break;
+            }
+            total += reply.ids.len() as u64;
+            if reply.ids.len() < PAGE_SIZE {
+                break;
+            }
+            let last_id = &reply.ids.last().expect("non-empty").id;
+            start = stream_range_start_after(last_id, exclusive_range_supported, true);
+        }
+        Ok(total)
     }
 
     async fn count_processable_in_progress<C>(
         &self,
         connection: &mut C,
         consumer_group: &str,
+        exclusive_range_supported: bool,
     ) -> Result<u64>
     where
         C: AsyncCommands + Send,
@@ -326,6 +353,9 @@ impl BackgroundQueue {
         const PAGE_SIZE: usize = 100;
         let mut total = 0u64;
         let mut start = "-".to_string();
+        let min_id = self.get_stream_min_id(connection).await?;
+        let min_id_ref = min_id.as_deref();
+
         loop {
             let reply: StreamPendingCountReply = connection
                 .xpending_count(
@@ -341,32 +371,28 @@ impl BackgroundQueue {
                 break;
             }
             for entry in &reply.ids {
-                if self.stream_entry_exists(connection, &entry.id).await? {
+                if !is_tombstoned_pel_entry(&entry.id, min_id_ref) {
                     total += 1;
-                } else {
-                    let _: i32 = connection
-                        .xack(&self.stream_key, consumer_group, &[entry.id.as_str()])
-                        .await
-                        .map_err(StoreError::Storage)?;
                 }
             }
             if reply.ids.len() < PAGE_SIZE {
                 break;
             }
-            start = exclusive_stream_start(&reply.ids.last().expect("non-empty").id);
+            let last_id = &reply.ids.last().expect("non-empty").id;
+            start = stream_range_start_after(last_id, exclusive_range_supported, true);
         }
         Ok(total)
     }
 
-    async fn stream_entry_exists<C>(&self, connection: &mut C, stream_id: &str) -> Result<bool>
+    async fn get_stream_min_id<C>(&self, connection: &mut C) -> Result<Option<String>>
     where
         C: AsyncCommands + Send,
     {
         let reply: StreamRangeReply = connection
-            .xrange_count(&self.stream_key, stream_id, stream_id, 1)
+            .xrange_count(&self.stream_key, "-", "+", 1)
             .await
             .map_err(StoreError::Storage)?;
-        Ok(!reply.ids.is_empty())
+        Ok(reply.ids.first().map(|entry| entry.id.clone()))
     }
 
     pub async fn acknowledge(&self, consumer_group: &str, stream_id: &str) -> Result<()> {
@@ -586,11 +612,44 @@ fn is_missing_stream(err: &RedisError) -> bool {
     err.to_string().contains("no such key")
 }
 
-fn exclusive_stream_start(stream_id: &str) -> String {
-    if stream_id == "0-0" || stream_id == "-" {
-        "-".to_string()
-    } else {
+fn stream_range_start_after(
+    stream_id: &str,
+    exclusive_range_supported: bool,
+    after_delivered: bool,
+) -> String {
+    if !after_delivered && (stream_id == "0-0" || stream_id == "-") {
+        return "-".to_string();
+    }
+    if exclusive_range_supported {
         format!("({stream_id}")
+    } else {
+        stream_id_after(stream_id).unwrap_or_else(|| stream_id.to_string())
+    }
+}
+
+fn stream_id_after(stream_id: &str) -> Option<String> {
+    let (ms, seq) = parse_stream_id(stream_id)?;
+    Some(format!("{ms}-{}", seq + 1))
+}
+
+fn parse_stream_id(stream_id: &str) -> Option<(u64, u64)> {
+    let (ms, seq) = stream_id.split_once('-')?;
+    Some((ms.parse().ok()?, seq.parse().ok()?))
+}
+
+fn is_tombstoned_pel_entry(entry_id: &str, min_stream_id: Option<&str>) -> bool {
+    let Some(min_stream_id) = min_stream_id else {
+        return true;
+    };
+    stream_id_less_than(entry_id, min_stream_id)
+}
+
+fn stream_id_less_than(left: &str, right: &str) -> bool {
+    match (parse_stream_id(left), parse_stream_id(right)) {
+        (Some((left_ms, left_seq)), Some((right_ms, right_seq))) => {
+            left_ms < right_ms || (left_ms == right_ms && left_seq < right_seq)
+        }
+        _ => false,
     }
 }
 
@@ -622,16 +681,51 @@ return 0
 
 #[cfg(test)]
 mod tests {
-    use super::exclusive_stream_start;
+    use super::{
+        is_tombstoned_pel_entry, stream_id_after, stream_id_less_than, stream_range_start_after,
+    };
 
     #[test]
-    fn exclusive_stream_start_uses_open_range_from_origin() {
-        assert_eq!(exclusive_stream_start("0-0"), "-");
-        assert_eq!(exclusive_stream_start("-"), "-");
+    fn stream_range_start_uses_open_range_from_origin() {
+        assert_eq!(stream_range_start_after("0-0", true, false), "-");
+        assert_eq!(stream_range_start_after("-", true, false), "-");
     }
 
     #[test]
-    fn exclusive_stream_start_excludes_last_delivered_id() {
-        assert_eq!(exclusive_stream_start("1746500000-0"), "(1746500000-0");
+    fn stream_range_start_uses_exclusive_range_when_supported() {
+        assert_eq!(
+            stream_range_start_after("1746500000-0", true, true),
+            "(1746500000-0"
+        );
+    }
+
+    #[test]
+    fn stream_range_start_increments_id_when_exclusive_unsupported() {
+        assert_eq!(
+            stream_range_start_after("1746500000-0", false, true),
+            "1746500000-1"
+        );
+    }
+
+    #[test]
+    fn stream_id_after_increments_sequence() {
+        assert_eq!(
+            stream_id_after("1746500000-0").as_deref(),
+            Some("1746500000-1")
+        );
+    }
+
+    #[test]
+    fn tombstoned_pel_entry_is_older_than_stream_tail() {
+        assert!(is_tombstoned_pel_entry("1000-0", Some("2000-0")));
+        assert!(!is_tombstoned_pel_entry("2000-0", Some("2000-0")));
+        assert!(is_tombstoned_pel_entry("1000-0", None));
+    }
+
+    #[test]
+    fn stream_id_less_than_compares_millis_then_sequence() {
+        assert!(stream_id_less_than("1000-0", "2000-0"));
+        assert!(stream_id_less_than("1000-0", "1000-1"));
+        assert!(!stream_id_less_than("1000-1", "1000-0"));
     }
 }

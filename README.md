@@ -79,7 +79,7 @@ charts/responses-api-store/    # Helm subchart
 
 The service exposes store-agnostic queue depth for autoscaling without Valkey credentials or Redis Streams semantics.
 
-**Requirements:** stats prefer the Redis Streams consumer-group `lag` field (Redis 7.0+). When `lag` is missing or `NULL` (for example after stream trimming), the server falls back to counting unread stream entries via `XRANGE`. `in_progress` counts only PEL entries whose stream payloads still exist; tombstoned PEL references after `MAXLEN` trimming are excluded and acknowledged. Check `Health` (`redis_version`, `background_queue_lag_supported`) before enabling metrics-based autoscaling on older Redis deployments.
+**Requirements:** stats prefer the Redis Streams consumer-group `lag` field (Redis 7.0+). When `lag` is missing or `NULL` (for example after stream trimming), the server falls back to paginated `XRANGE` counts. `in_progress` excludes PEL entries tombstoned by `MAXLEN` trimming (stream ID older than the stream tail) without mutating the consumer group, so workers can still acknowledge in-flight jobs. Lag fallback needs Redis/Valkey 6.2+ for exclusive stream ranges; older servers use ID increment instead. Check `Health` (`redis_version`, `background_queue_lag_supported`) before enabling metrics-based autoscaling.
 
 On cold start, stats auto-create a consumer group only when the stream exists but has no groups yet (for example jobs enqueued before the first worker starts). A mistyped `consumer_group` while other groups already exist returns not-found rather than creating an orphan group.
 

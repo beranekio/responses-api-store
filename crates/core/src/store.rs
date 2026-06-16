@@ -3,6 +3,7 @@ use std::sync::Arc;
 use redis::{aio::ConnectionManager, AsyncCommands};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 
 use crate::{
     error::{Result, StoreError},
@@ -57,14 +58,8 @@ impl ResponseStore {
     }
 
     pub async fn redis_server_info(&self) -> Result<(String, bool)> {
-        let mut connection = self.connection.clone();
-        let info: String = redis::cmd("INFO")
-            .arg("server")
-            .query_async(&mut connection)
-            .await
-            .map_err(StoreError::Storage)?;
-        let version = parse_redis_version(&info).unwrap_or_default();
-        Ok((version.clone(), redis_version_supports_lag(&version)))
+        let capabilities = load_redis_capabilities(&self.redis_client).await?;
+        Ok((capabilities.version, capabilities.lag_supported))
     }
 
     pub async fn store(
@@ -344,6 +339,37 @@ fn reconcile_write_ttl(redis_ttl: i64, default_ttl_seconds: u64) -> u64 {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RedisCapabilities {
+    pub version: String,
+    pub lag_supported: bool,
+    pub exclusive_range_supported: bool,
+}
+
+static REDIS_CAPABILITIES: OnceCell<RedisCapabilities> = OnceCell::const_new();
+
+pub async fn load_redis_capabilities(client: &redis::Client) -> Result<RedisCapabilities> {
+    REDIS_CAPABILITIES
+        .get_or_try_init(|| async {
+            let mut connection = ConnectionManager::new(client.clone())
+                .await
+                .map_err(StoreError::Storage)?;
+            let info: String = redis::cmd("INFO")
+                .arg("server")
+                .query_async(&mut connection)
+                .await
+                .map_err(StoreError::Storage)?;
+            let version = parse_redis_version(&info).unwrap_or_default();
+            Ok(RedisCapabilities {
+                version: version.clone(),
+                lag_supported: redis_version_supports_lag(&version),
+                exclusive_range_supported: redis_version_supports_exclusive_range(&version),
+            })
+        })
+        .await
+        .cloned()
+}
+
 fn parse_redis_version(info: &str) -> Option<String> {
     for line in info.lines() {
         if let Some(version) = line.strip_prefix("redis_version:") {
@@ -354,11 +380,24 @@ fn parse_redis_version(info: &str) -> Option<String> {
 }
 
 pub fn redis_version_supports_lag(version: &str) -> bool {
-    let major = version
-        .split('.')
-        .next()
-        .and_then(|part| part.parse::<u32>().ok());
-    major.is_some_and(|major| major >= 7)
+    redis_version_at_least(version, 7, 0)
+}
+
+pub fn redis_version_supports_exclusive_range(version: &str) -> bool {
+    redis_version_at_least(version, 6, 2)
+}
+
+fn redis_version_at_least(version: &str, min_major: u32, min_minor: u32) -> bool {
+    let mut parts = version.split('.');
+    let major = parts.next().and_then(|part| part.parse::<u32>().ok());
+    let minor = parts.next().and_then(|part| part.parse::<u32>().ok());
+    match (major, minor) {
+        (Some(major), Some(minor)) => {
+            major > min_major || (major == min_major && minor >= min_minor)
+        }
+        (Some(major), None) => major > min_major,
+        _ => false,
+    }
 }
 
 fn apply_stale_failure(stored: &mut StoredResponse, response_id: &str) {
@@ -401,5 +440,13 @@ mod tests {
         assert!(super::redis_version_supports_lag("9.1.0"));
         assert!(!super::redis_version_supports_lag("6.2.14"));
         assert!(!super::redis_version_supports_lag(""));
+    }
+
+    #[test]
+    fn redis_version_supports_exclusive_range_from_minor_version() {
+        assert!(super::redis_version_supports_exclusive_range("6.2.14"));
+        assert!(super::redis_version_supports_exclusive_range("7.0.0"));
+        assert!(!super::redis_version_supports_exclusive_range("6.1.0"));
+        assert!(!super::redis_version_supports_exclusive_range("5.0.14"));
     }
 }
