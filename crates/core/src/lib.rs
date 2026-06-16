@@ -17,4 +17,4 @@ pub use model::{
     PendingBackgroundJob, StoredResponse,
 };
 pub use queue::{BackgroundQueue, BackgroundQueueStats, ClaimBatchResult, ClaimOptions};
-pub use store::ResponseStore;
+pub use store::{load_redis_capabilities, RedisCapabilities, ResponseStore};

@@ -309,3 +309,95 @@ async fn stats_report_pending_and_in_progress_together() {
     assert_eq!(stats.in_progress, 1);
     assert_eq!(stats.workload, 2);
 }
+
+#[tokio::test]
+async fn stats_exclude_tombstoned_pel_entries_after_trim() {
+    let redis_url = match std::env::var("RESPONSE_ID_STORE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!(
+                "skipping stats_exclude_tombstoned_pel_entries_after_trim: RESPONSE_ID_STORE_URL unset"
+            );
+            return;
+        }
+    };
+
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let stream_key = format!("responses-api-store:test-queue-stats-trim:{suffix}");
+    let key_prefix = format!("responses-api-store:test-queue-stats-trim-store:{suffix}");
+    let consumer_group = format!("queue-stats-trim-{suffix}");
+    let response_id = format!("resp_{suffix}");
+
+    let queue = match BackgroundQueue::connect(&redis_url, stream_key, 2).await {
+        Ok(queue) => queue,
+        Err(err) => {
+            eprintln!("skipping stats_exclude_tombstoned_pel_entries_after_trim: {err}");
+            return;
+        }
+    };
+    let store = match ResponseStore::connect(&redis_url, key_prefix, 300, 60).await {
+        Ok(store) => store,
+        Err(err) => {
+            eprintln!("skipping stats_exclude_tombstoned_pel_entries_after_trim: {err}");
+            return;
+        }
+    };
+    if store.ping().await.is_err() {
+        eprintln!("skipping stats_exclude_tombstoned_pel_entries_after_trim: redis unavailable");
+        return;
+    }
+
+    queue
+        .ensure_consumer_group(&consumer_group, "0-0")
+        .await
+        .expect("ensure consumer group");
+    store
+        .store(&response_id, &sample_record(&response_id), None)
+        .await
+        .expect("store response");
+    queue
+        .enqueue(&response_id)
+        .await
+        .expect("enqueue first job");
+
+    let mut cursor = queue
+        .get_autoclaim_cursor(&consumer_group)
+        .await
+        .expect("load autoclaim cursor");
+    let batch = queue
+        .claim_jobs(
+            &store,
+            &ClaimOptions {
+                consumer_group: consumer_group.clone(),
+                consumer_name: "worker".to_string(),
+                count: 1,
+                block_ms: 0,
+                autoclaim_min_idle_ms: 0,
+            },
+            &mut cursor,
+        )
+        .await
+        .expect("claim job");
+    assert_eq!(batch.jobs.len(), 1);
+
+    for filler in 0..4 {
+        let filler_id = format!("{response_id}_filler_{filler}");
+        store
+            .store(&filler_id, &sample_record(&filler_id), None)
+            .await
+            .expect("store filler response");
+        queue.enqueue(&filler_id).await.expect("enqueue filler job");
+    }
+
+    let stats = queue
+        .stats(&consumer_group)
+        .await
+        .expect("load queue stats after trim");
+    assert_eq!(
+        stats.in_progress, 0,
+        "trimmed stream entries should not inflate in_progress"
+    );
+}

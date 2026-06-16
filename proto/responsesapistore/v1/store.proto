@@ -170,4 +170,8 @@ message HealthRequest {}
 message HealthResponse {
   bool redis_ok = 1;
   string version = 2;
+  // Redis/Valkey server version from INFO (empty when unavailable).
+  string redis_version = 3;
+  // True when the server exposes the consumer-group lag field (Redis 7.0+).
+  bool background_queue_lag_supported = 4;
 }

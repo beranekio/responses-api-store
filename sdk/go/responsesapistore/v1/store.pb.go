@@ -1356,11 +1356,15 @@ func (*HealthRequest) Descriptor() ([]byte, []int) {
 }
 
 type HealthResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RedisOk       bool                   `protobuf:"varint,1,opt,name=redis_ok,json=redisOk,proto3" json:"redis_ok,omitempty"`
-	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	RedisOk bool                   `protobuf:"varint,1,opt,name=redis_ok,json=redisOk,proto3" json:"redis_ok,omitempty"`
+	Version string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	// Redis/Valkey server version from INFO (empty when unavailable).
+	RedisVersion string `protobuf:"bytes,3,opt,name=redis_version,json=redisVersion,proto3" json:"redis_version,omitempty"`
+	// True when the server exposes the consumer-group lag field (Redis 7.0+).
+	BackgroundQueueLagSupported bool `protobuf:"varint,4,opt,name=background_queue_lag_supported,json=backgroundQueueLagSupported,proto3" json:"background_queue_lag_supported,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *HealthResponse) Reset() {
@@ -1405,6 +1409,20 @@ func (x *HealthResponse) GetVersion() string {
 		return x.Version
 	}
 	return ""
+}
+
+func (x *HealthResponse) GetRedisVersion() string {
+	if x != nil {
+		return x.RedisVersion
+	}
+	return ""
+}
+
+func (x *HealthResponse) GetBackgroundQueueLagSupported() bool {
+	if x != nil {
+		return x.BackgroundQueueLagSupported
+	}
+	return false
 }
 
 var File_responsesapistore_v1_store_proto protoreflect.FileDescriptor
@@ -1505,10 +1523,12 @@ const file_responsesapistore_v1_store_proto_rawDesc = "" +
 	"\x1aGenerateResponseIdResponse\x12\x1f\n" +
 	"\vresponse_id\x18\x01 \x01(\tR\n" +
 	"responseId\"\x0f\n" +
-	"\rHealthRequest\"E\n" +
+	"\rHealthRequest\"\xaf\x01\n" +
 	"\x0eHealthResponse\x12\x19\n" +
 	"\bredis_ok\x18\x01 \x01(\bR\aredisOk\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion2\x9b\v\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12#\n" +
+	"\rredis_version\x18\x03 \x01(\tR\fredisVersion\x12C\n" +
+	"\x1ebackground_queue_lag_supported\x18\x04 \x01(\bR\x1bbackgroundQueueLagSupported2\x9b\v\n" +
 	"\x11ResponsesApiStore\x12h\n" +
 	"\rStoreResponse\x12*.responsesapistore.v1.StoreResponseRequest\x1a+.responsesapistore.v1.StoreResponseResponse\x12b\n" +
 	"\vGetResponse\x12(.responsesapistore.v1.GetResponseRequest\x1a).responsesapistore.v1.GetResponseResponse\x12k\n" +
