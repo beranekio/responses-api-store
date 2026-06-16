@@ -103,6 +103,10 @@ message BackgroundJob {
 message PendingBackgroundJob {
   string stream_id = 1;
   string response_id = 2;
+  // True when the entry was reclaimed via XAUTOCLAIM.
+  bool autoclaimed = 3;
+  // Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
+  optional uint64 idle_ms = 4;
 }
 
 message ClaimBackgroundJobsResponse {

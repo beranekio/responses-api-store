@@ -27,6 +27,8 @@ pub struct BackgroundJob {
 pub struct PendingBackgroundJob {
     pub stream_id: String,
     pub response_id: String,
+    pub autoclaimed: bool,
+    pub idle_ms: Option<u64>,
 }
 
 pub fn response_store_key(prefix: &str, response_id: &str) -> String {

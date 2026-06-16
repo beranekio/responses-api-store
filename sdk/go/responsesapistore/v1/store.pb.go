@@ -710,9 +710,13 @@ func (x *BackgroundJob) GetIdleMs() uint64 {
 }
 
 type PendingBackgroundJob struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	StreamId      string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
-	ResponseId    string                 `protobuf:"bytes,2,opt,name=response_id,json=responseId,proto3" json:"response_id,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	StreamId   string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	ResponseId string                 `protobuf:"bytes,2,opt,name=response_id,json=responseId,proto3" json:"response_id,omitempty"`
+	// True when the entry was reclaimed via XAUTOCLAIM.
+	Autoclaimed bool `protobuf:"varint,3,opt,name=autoclaimed,proto3" json:"autoclaimed,omitempty"`
+	// Minimum idle time in milliseconds when autoclaimed (from autoclaim_min_idle_ms).
+	IdleMs        *uint64 `protobuf:"varint,4,opt,name=idle_ms,json=idleMs,proto3,oneof" json:"idle_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -759,6 +763,20 @@ func (x *PendingBackgroundJob) GetResponseId() string {
 		return x.ResponseId
 	}
 	return ""
+}
+
+func (x *PendingBackgroundJob) GetAutoclaimed() bool {
+	if x != nil {
+		return x.Autoclaimed
+	}
+	return false
+}
+
+func (x *PendingBackgroundJob) GetIdleMs() uint64 {
+	if x != nil && x.IdleMs != nil {
+		return *x.IdleMs
+	}
+	return 0
 }
 
 type ClaimBackgroundJobsResponse struct {
@@ -1445,11 +1463,15 @@ const file_responsesapistore_v1_store_proto_rawDesc = "" +
 	"\vautoclaimed\x18\x04 \x01(\bR\vautoclaimed\x12\x1c\n" +
 	"\aidle_ms\x18\x05 \x01(\x04H\x00R\x06idleMs\x88\x01\x01B\n" +
 	"\n" +
-	"\b_idle_ms\"T\n" +
+	"\b_idle_ms\"\xa0\x01\n" +
 	"\x14PendingBackgroundJob\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x1f\n" +
 	"\vresponse_id\x18\x02 \x01(\tR\n" +
-	"responseId\"\xd3\x01\n" +
+	"responseId\x12 \n" +
+	"\vautoclaimed\x18\x03 \x01(\bR\vautoclaimed\x12\x1c\n" +
+	"\aidle_ms\x18\x04 \x01(\x04H\x00R\x06idleMs\x88\x01\x01B\n" +
+	"\n" +
+	"\b_idle_ms\"\xd3\x01\n" +
 	"\x1bClaimBackgroundJobsResponse\x127\n" +
 	"\x04jobs\x18\x01 \x03(\v2#.responsesapistore.v1.BackgroundJobR\x04jobs\x12,\n" +
 	"\x12pending_stream_ids\x18\x02 \x03(\tR\x10pendingStreamIds\x12M\n" +
@@ -1590,6 +1612,7 @@ func file_responsesapistore_v1_store_proto_init() {
 	}
 	file_responsesapistore_v1_store_proto_msgTypes[0].OneofWrappers = []any{}
 	file_responsesapistore_v1_store_proto_msgTypes[12].OneofWrappers = []any{}
+	file_responsesapistore_v1_store_proto_msgTypes[13].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -150,7 +150,13 @@ impl BackgroundQueue {
                 .await?;
             *autoclaim_cursor = autoclaim.next_stream_id;
             let batch = self
-                .jobs_from_stream_ids(store, &options.consumer_group, &autoclaim.claimed, true)
+                .jobs_from_stream_ids(
+                    store,
+                    &options.consumer_group,
+                    &autoclaim.claimed,
+                    true,
+                    Some(options.autoclaim_min_idle_ms),
+                )
                 .await?;
             result.jobs.extend(batch.jobs);
             result.pending_stream_ids.extend(batch.pending_stream_ids);
@@ -186,7 +192,7 @@ impl BackgroundQueue {
                 Err(err) => return Err(err),
             };
             match self
-                .jobs_from_stream_ids(store, &options.consumer_group, &read.ids, false)
+                .jobs_from_stream_ids(store, &options.consumer_group, &read.ids, false, None)
                 .await
             {
                 Ok(batch) => {
@@ -398,7 +404,11 @@ impl BackgroundQueue {
         consumer_group: &str,
         entries: &[StreamId],
         autoclaimed: bool,
+        autoclaim_min_idle_ms: Option<usize>,
     ) -> Result<ClaimBatchResult> {
+        let idle_ms = autoclaimed
+            .then(|| autoclaim_min_idle_ms.map(|ms| ms as u64))
+            .flatten();
         let mut jobs = Vec::with_capacity(entries.len());
         let mut pending_stream_ids = Vec::new();
         let mut pending_jobs = Vec::new();
@@ -435,6 +445,8 @@ impl BackgroundQueue {
                     pending_jobs.push(PendingBackgroundJob {
                         stream_id: entry.id.clone(),
                         response_id: response_id.clone(),
+                        autoclaimed,
+                        idle_ms,
                     });
                     continue;
                 }
@@ -446,7 +458,7 @@ impl BackgroundQueue {
                 response_id,
                 record,
                 autoclaimed,
-                idle_ms: None,
+                idle_ms,
             });
         }
         Ok(ClaimBatchResult {
