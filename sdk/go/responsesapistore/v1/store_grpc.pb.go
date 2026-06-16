@@ -19,18 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ResponsesApiStore_StoreResponse_FullMethodName            = "/responsesapistore.v1.ResponsesApiStore/StoreResponse"
-	ResponsesApiStore_GetResponse_FullMethodName              = "/responsesapistore.v1.ResponsesApiStore/GetResponse"
-	ResponsesApiStore_UpdateResponse_FullMethodName           = "/responsesapistore.v1.ResponsesApiStore/UpdateResponse"
-	ResponsesApiStore_DeleteResponse_FullMethodName           = "/responsesapistore.v1.ResponsesApiStore/DeleteResponse"
-	ResponsesApiStore_EnqueueBackgroundJob_FullMethodName     = "/responsesapistore.v1.ResponsesApiStore/EnqueueBackgroundJob"
-	ResponsesApiStore_ClaimBackgroundJobs_FullMethodName      = "/responsesapistore.v1.ResponsesApiStore/ClaimBackgroundJobs"
-	ResponsesApiStore_AcknowledgeBackgroundJob_FullMethodName = "/responsesapistore.v1.ResponsesApiStore/AcknowledgeBackgroundJob"
-	ResponsesApiStore_EnsureConsumerGroup_FullMethodName      = "/responsesapistore.v1.ResponsesApiStore/EnsureConsumerGroup"
-	ResponsesApiStore_GetBackgroundQueueStats_FullMethodName  = "/responsesapistore.v1.ResponsesApiStore/GetBackgroundQueueStats"
-	ResponsesApiStore_ReconcileStaleResponse_FullMethodName   = "/responsesapistore.v1.ResponsesApiStore/ReconcileStaleResponse"
-	ResponsesApiStore_GenerateResponseId_FullMethodName       = "/responsesapistore.v1.ResponsesApiStore/GenerateResponseId"
-	ResponsesApiStore_Health_FullMethodName                   = "/responsesapistore.v1.ResponsesApiStore/Health"
+	ResponsesApiStore_StoreResponse_FullMethodName              = "/responsesapistore.v1.ResponsesApiStore/StoreResponse"
+	ResponsesApiStore_GetResponse_FullMethodName                = "/responsesapistore.v1.ResponsesApiStore/GetResponse"
+	ResponsesApiStore_UpdateResponse_FullMethodName             = "/responsesapistore.v1.ResponsesApiStore/UpdateResponse"
+	ResponsesApiStore_DeleteResponse_FullMethodName             = "/responsesapistore.v1.ResponsesApiStore/DeleteResponse"
+	ResponsesApiStore_EnqueueBackgroundJob_FullMethodName       = "/responsesapistore.v1.ResponsesApiStore/EnqueueBackgroundJob"
+	ResponsesApiStore_ClaimBackgroundJobs_FullMethodName        = "/responsesapistore.v1.ResponsesApiStore/ClaimBackgroundJobs"
+	ResponsesApiStore_AcknowledgeBackgroundJob_FullMethodName   = "/responsesapistore.v1.ResponsesApiStore/AcknowledgeBackgroundJob"
+	ResponsesApiStore_EnsureConsumerGroup_FullMethodName        = "/responsesapistore.v1.ResponsesApiStore/EnsureConsumerGroup"
+	ResponsesApiStore_GetBackgroundQueueStats_FullMethodName    = "/responsesapistore.v1.ResponsesApiStore/GetBackgroundQueueStats"
+	ResponsesApiStore_ClaimBackgroundResponse_FullMethodName    = "/responsesapistore.v1.ResponsesApiStore/ClaimBackgroundResponse"
+	ResponsesApiStore_CompleteBackgroundResponse_FullMethodName = "/responsesapistore.v1.ResponsesApiStore/CompleteBackgroundResponse"
+	ResponsesApiStore_FailBackgroundResponse_FullMethodName     = "/responsesapistore.v1.ResponsesApiStore/FailBackgroundResponse"
+	ResponsesApiStore_ReconcileStaleResponse_FullMethodName     = "/responsesapistore.v1.ResponsesApiStore/ReconcileStaleResponse"
+	ResponsesApiStore_GenerateResponseId_FullMethodName         = "/responsesapistore.v1.ResponsesApiStore/GenerateResponseId"
+	ResponsesApiStore_Health_FullMethodName                     = "/responsesapistore.v1.ResponsesApiStore/Health"
 )
 
 // ResponsesApiStoreClient is the client API for ResponsesApiStore service.
@@ -51,6 +54,9 @@ type ResponsesApiStoreClient interface {
 	AcknowledgeBackgroundJob(ctx context.Context, in *AcknowledgeBackgroundJobRequest, opts ...grpc.CallOption) (*AcknowledgeBackgroundJobResponse, error)
 	EnsureConsumerGroup(ctx context.Context, in *EnsureConsumerGroupRequest, opts ...grpc.CallOption) (*EnsureConsumerGroupResponse, error)
 	GetBackgroundQueueStats(ctx context.Context, in *GetBackgroundQueueStatsRequest, opts ...grpc.CallOption) (*GetBackgroundQueueStatsResponse, error)
+	ClaimBackgroundResponse(ctx context.Context, in *ClaimBackgroundResponseRequest, opts ...grpc.CallOption) (*ClaimBackgroundResponseResponse, error)
+	CompleteBackgroundResponse(ctx context.Context, in *CompleteBackgroundResponseRequest, opts ...grpc.CallOption) (*CompleteBackgroundResponseResponse, error)
+	FailBackgroundResponse(ctx context.Context, in *FailBackgroundResponseRequest, opts ...grpc.CallOption) (*FailBackgroundResponseResponse, error)
 	// Maintenance and utilities
 	ReconcileStaleResponse(ctx context.Context, in *ReconcileStaleResponseRequest, opts ...grpc.CallOption) (*ReconcileStaleResponseResponse, error)
 	GenerateResponseId(ctx context.Context, in *GenerateResponseIdRequest, opts ...grpc.CallOption) (*GenerateResponseIdResponse, error)
@@ -155,6 +161,36 @@ func (c *responsesApiStoreClient) GetBackgroundQueueStats(ctx context.Context, i
 	return out, nil
 }
 
+func (c *responsesApiStoreClient) ClaimBackgroundResponse(ctx context.Context, in *ClaimBackgroundResponseRequest, opts ...grpc.CallOption) (*ClaimBackgroundResponseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClaimBackgroundResponseResponse)
+	err := c.cc.Invoke(ctx, ResponsesApiStore_ClaimBackgroundResponse_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *responsesApiStoreClient) CompleteBackgroundResponse(ctx context.Context, in *CompleteBackgroundResponseRequest, opts ...grpc.CallOption) (*CompleteBackgroundResponseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompleteBackgroundResponseResponse)
+	err := c.cc.Invoke(ctx, ResponsesApiStore_CompleteBackgroundResponse_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *responsesApiStoreClient) FailBackgroundResponse(ctx context.Context, in *FailBackgroundResponseRequest, opts ...grpc.CallOption) (*FailBackgroundResponseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FailBackgroundResponseResponse)
+	err := c.cc.Invoke(ctx, ResponsesApiStore_FailBackgroundResponse_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *responsesApiStoreClient) ReconcileStaleResponse(ctx context.Context, in *ReconcileStaleResponseRequest, opts ...grpc.CallOption) (*ReconcileStaleResponseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReconcileStaleResponseResponse)
@@ -203,6 +239,9 @@ type ResponsesApiStoreServer interface {
 	AcknowledgeBackgroundJob(context.Context, *AcknowledgeBackgroundJobRequest) (*AcknowledgeBackgroundJobResponse, error)
 	EnsureConsumerGroup(context.Context, *EnsureConsumerGroupRequest) (*EnsureConsumerGroupResponse, error)
 	GetBackgroundQueueStats(context.Context, *GetBackgroundQueueStatsRequest) (*GetBackgroundQueueStatsResponse, error)
+	ClaimBackgroundResponse(context.Context, *ClaimBackgroundResponseRequest) (*ClaimBackgroundResponseResponse, error)
+	CompleteBackgroundResponse(context.Context, *CompleteBackgroundResponseRequest) (*CompleteBackgroundResponseResponse, error)
+	FailBackgroundResponse(context.Context, *FailBackgroundResponseRequest) (*FailBackgroundResponseResponse, error)
 	// Maintenance and utilities
 	ReconcileStaleResponse(context.Context, *ReconcileStaleResponseRequest) (*ReconcileStaleResponseResponse, error)
 	GenerateResponseId(context.Context, *GenerateResponseIdRequest) (*GenerateResponseIdResponse, error)
@@ -243,6 +282,15 @@ func (UnimplementedResponsesApiStoreServer) EnsureConsumerGroup(context.Context,
 }
 func (UnimplementedResponsesApiStoreServer) GetBackgroundQueueStats(context.Context, *GetBackgroundQueueStatsRequest) (*GetBackgroundQueueStatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBackgroundQueueStats not implemented")
+}
+func (UnimplementedResponsesApiStoreServer) ClaimBackgroundResponse(context.Context, *ClaimBackgroundResponseRequest) (*ClaimBackgroundResponseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ClaimBackgroundResponse not implemented")
+}
+func (UnimplementedResponsesApiStoreServer) CompleteBackgroundResponse(context.Context, *CompleteBackgroundResponseRequest) (*CompleteBackgroundResponseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteBackgroundResponse not implemented")
+}
+func (UnimplementedResponsesApiStoreServer) FailBackgroundResponse(context.Context, *FailBackgroundResponseRequest) (*FailBackgroundResponseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FailBackgroundResponse not implemented")
 }
 func (UnimplementedResponsesApiStoreServer) ReconcileStaleResponse(context.Context, *ReconcileStaleResponseRequest) (*ReconcileStaleResponseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReconcileStaleResponse not implemented")
@@ -436,6 +484,60 @@ func _ResponsesApiStore_GetBackgroundQueueStats_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ResponsesApiStore_ClaimBackgroundResponse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClaimBackgroundResponseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResponsesApiStoreServer).ClaimBackgroundResponse(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResponsesApiStore_ClaimBackgroundResponse_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResponsesApiStoreServer).ClaimBackgroundResponse(ctx, req.(*ClaimBackgroundResponseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ResponsesApiStore_CompleteBackgroundResponse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteBackgroundResponseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResponsesApiStoreServer).CompleteBackgroundResponse(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResponsesApiStore_CompleteBackgroundResponse_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResponsesApiStoreServer).CompleteBackgroundResponse(ctx, req.(*CompleteBackgroundResponseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ResponsesApiStore_FailBackgroundResponse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FailBackgroundResponseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResponsesApiStoreServer).FailBackgroundResponse(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResponsesApiStore_FailBackgroundResponse_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResponsesApiStoreServer).FailBackgroundResponse(ctx, req.(*FailBackgroundResponseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ResponsesApiStore_ReconcileStaleResponse_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReconcileStaleResponseRequest)
 	if err := dec(in); err != nil {
@@ -532,6 +634,18 @@ var ResponsesApiStore_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBackgroundQueueStats",
 			Handler:    _ResponsesApiStore_GetBackgroundQueueStats_Handler,
+		},
+		{
+			MethodName: "ClaimBackgroundResponse",
+			Handler:    _ResponsesApiStore_ClaimBackgroundResponse_Handler,
+		},
+		{
+			MethodName: "CompleteBackgroundResponse",
+			Handler:    _ResponsesApiStore_CompleteBackgroundResponse_Handler,
+		},
+		{
+			MethodName: "FailBackgroundResponse",
+			Handler:    _ResponsesApiStore_FailBackgroundResponse_Handler,
 		},
 		{
 			MethodName: "ReconcileStaleResponse",

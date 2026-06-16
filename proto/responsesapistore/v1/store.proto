@@ -20,6 +20,12 @@ service ResponsesApiStore {
   rpc EnsureConsumerGroup(EnsureConsumerGroupRequest) returns (EnsureConsumerGroupResponse);
   rpc GetBackgroundQueueStats(GetBackgroundQueueStatsRequest)
       returns (GetBackgroundQueueStatsResponse);
+  rpc ClaimBackgroundResponse(ClaimBackgroundResponseRequest)
+      returns (ClaimBackgroundResponseResponse);
+  rpc CompleteBackgroundResponse(CompleteBackgroundResponseRequest)
+      returns (CompleteBackgroundResponseResponse);
+  rpc FailBackgroundResponse(FailBackgroundResponseRequest)
+      returns (FailBackgroundResponseResponse);
 
   // Maintenance and utilities
   rpc ReconcileStaleResponse(ReconcileStaleResponseRequest) returns (ReconcileStaleResponseResponse);
@@ -147,6 +153,35 @@ message GetBackgroundQueueStatsResponse {
   uint64 in_progress = 2;
   // Scalar for HPA/KEDA (recommended: pending + in_progress).
   uint64 workload = 3;
+}
+
+message ClaimBackgroundResponseRequest {
+  string response_id = 1;
+}
+
+message ClaimBackgroundResponseResponse {
+  StoredResponse record = 1;
+  string upstream = 2;
+  string pending_upstream_request_json = 3;
+  optional string upstream_authorization = 4;
+}
+
+message CompleteBackgroundResponseRequest {
+  string response_id = 1;
+  string response_json = 2;
+}
+
+message CompleteBackgroundResponseResponse {
+  StoredResponse record = 1;
+}
+
+message FailBackgroundResponseRequest {
+  string response_id = 1;
+  string error_message = 2;
+}
+
+message FailBackgroundResponseResponse {
+  StoredResponse record = 1;
 }
 
 message ReconcileStaleResponseRequest {

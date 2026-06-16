@@ -7,12 +7,15 @@ use responses_api_store_core::{
 use responses_api_store_proto::v1::{
     responses_api_store_server::ResponsesApiStore, AcknowledgeBackgroundJobRequest,
     AcknowledgeBackgroundJobResponse, ClaimBackgroundJobsRequest, ClaimBackgroundJobsResponse,
-    DeleteResponseRequest, DeleteResponseResponse, EnqueueBackgroundJobRequest,
-    EnqueueBackgroundJobResponse, EnsureConsumerGroupRequest, EnsureConsumerGroupResponse,
-    GenerateResponseIdRequest, GenerateResponseIdResponse, GetBackgroundQueueStatsRequest,
-    GetBackgroundQueueStatsResponse, GetResponseRequest, GetResponseResponse, HealthRequest,
-    HealthResponse, ReconcileStaleResponseRequest, ReconcileStaleResponseResponse,
-    StoreResponseRequest, StoreResponseResponse, UpdateResponseRequest, UpdateResponseResponse,
+    ClaimBackgroundResponseRequest, ClaimBackgroundResponseResponse,
+    CompleteBackgroundResponseRequest, CompleteBackgroundResponseResponse, DeleteResponseRequest,
+    DeleteResponseResponse, EnqueueBackgroundJobRequest, EnqueueBackgroundJobResponse,
+    EnsureConsumerGroupRequest, EnsureConsumerGroupResponse, FailBackgroundResponseRequest,
+    FailBackgroundResponseResponse, GenerateResponseIdRequest, GenerateResponseIdResponse,
+    GetBackgroundQueueStatsRequest, GetBackgroundQueueStatsResponse, GetResponseRequest,
+    GetResponseResponse, HealthRequest, HealthResponse, ReconcileStaleResponseRequest,
+    ReconcileStaleResponseResponse, StoreResponseRequest, StoreResponseResponse,
+    UpdateResponseRequest, UpdateResponseResponse,
 };
 use tonic::{Request, Response, Status};
 
@@ -302,6 +305,89 @@ impl ResponsesApiStore for ResponsesApiStoreService {
             pending: stats.pending,
             in_progress: stats.in_progress,
             workload: stats.workload,
+        }))
+    }
+
+    async fn claim_background_response(
+        &self,
+        request: Request<ClaimBackgroundResponseRequest>,
+    ) -> Result<Response<ClaimBackgroundResponseResponse>, Status> {
+        let request = request.into_inner();
+        if request.response_id.is_empty() {
+            return Err(Status::invalid_argument("response_id is required"));
+        }
+
+        let (record, payload) = self
+            .store
+            .claim_background_response(&request.response_id)
+            .await
+            .map_err(|err| map_store_error("ClaimBackgroundResponse", err))?;
+        let pending_upstream_request_json =
+            serde_json::to_string(&payload.pending_upstream_request).map_err(|e| {
+                Status::internal(format!(
+                    "failed to serialize pending_upstream_request for {}: {e}",
+                    request.response_id
+                ))
+            })?;
+
+        Ok(Response::new(ClaimBackgroundResponseResponse {
+            record: Some(core_to_proto(&request.response_id, &record)?),
+            upstream: payload.upstream,
+            pending_upstream_request_json,
+            upstream_authorization: payload.upstream_authorization,
+        }))
+    }
+
+    async fn complete_background_response(
+        &self,
+        request: Request<CompleteBackgroundResponseRequest>,
+    ) -> Result<Response<CompleteBackgroundResponseResponse>, Status> {
+        let request = request.into_inner();
+        if request.response_id.is_empty() {
+            return Err(Status::invalid_argument("response_id is required"));
+        }
+        if request.response_json.is_empty() {
+            return Err(Status::invalid_argument("response_json is required"));
+        }
+
+        let completed_response: serde_json::Value = serde_json::from_str(&request.response_json)
+            .map_err(|e| {
+                Status::invalid_argument(format!(
+                    "invalid response_json for {}: {e}",
+                    request.response_id
+                ))
+            })?;
+        let record = self
+            .store
+            .complete_background_response(&request.response_id, completed_response)
+            .await
+            .map_err(|err| map_store_error("CompleteBackgroundResponse", err))?;
+
+        Ok(Response::new(CompleteBackgroundResponseResponse {
+            record: Some(core_to_proto(&request.response_id, &record)?),
+        }))
+    }
+
+    async fn fail_background_response(
+        &self,
+        request: Request<FailBackgroundResponseRequest>,
+    ) -> Result<Response<FailBackgroundResponseResponse>, Status> {
+        let request = request.into_inner();
+        if request.response_id.is_empty() {
+            return Err(Status::invalid_argument("response_id is required"));
+        }
+        if request.error_message.is_empty() {
+            return Err(Status::invalid_argument("error_message is required"));
+        }
+
+        let record = self
+            .store
+            .fail_background_response(&request.response_id, &request.error_message)
+            .await
+            .map_err(|err| map_store_error("FailBackgroundResponse", err))?;
+
+        Ok(Response::new(FailBackgroundResponseResponse {
+            record: Some(core_to_proto(&request.response_id, &record)?),
         }))
     }
 

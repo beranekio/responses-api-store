@@ -22,6 +22,10 @@ pub type Result<T> = std::result::Result<T, ClientError>;
 /// `GetResponse` and `DeleteResponse` surface missing records as gRPC `NOT_FOUND`
 /// (`ClientError::Rpc`), not as `ClientError::NotFound`. The latter is reserved for
 /// successful RPC responses with an empty proto record.
+pub fn is_failed_precondition(err: &ClientError) -> bool {
+    matches!(err, ClientError::Rpc(status) if status.code() == Code::FailedPrecondition)
+}
+
 pub fn is_not_found(err: &ClientError) -> bool {
     match err {
         ClientError::NotFound(_) => true,

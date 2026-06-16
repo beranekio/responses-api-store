@@ -231,6 +231,54 @@ func (c *Client) GetBackgroundQueueStats(ctx context.Context, consumerGroup stri
 	}, nil
 }
 
+// ClaimBackgroundResponse atomically claims a queued background response for processing.
+func (c *Client) ClaimBackgroundResponse(ctx context.Context, responseID string) (StoredResponse, json.RawMessage, string, string, error) {
+	resp, err := c.client.ClaimBackgroundResponse(ctx, &pb.ClaimBackgroundResponseRequest{
+		ResponseId: responseID,
+	})
+	if err != nil {
+		return StoredResponse{}, nil, "", "", err
+	}
+	record, err := fromProtoRecord(resp.GetRecord())
+	if err != nil {
+		return StoredResponse{}, nil, "", "", err
+	}
+	return record, json.RawMessage(resp.GetPendingUpstreamRequestJson()), resp.GetUpstream(), resp.GetUpstreamAuthorization(), nil
+}
+
+// CompleteBackgroundResponse atomically persists a completed background response.
+func (c *Client) CompleteBackgroundResponse(ctx context.Context, responseID string, responseJSON json.RawMessage) (StoredResponse, error) {
+	resp, err := c.client.CompleteBackgroundResponse(ctx, &pb.CompleteBackgroundResponseRequest{
+		ResponseId:   responseID,
+		ResponseJson: string(responseJSON),
+	})
+	if err != nil {
+		return StoredResponse{}, err
+	}
+	return fromProtoRecord(resp.GetRecord())
+}
+
+// FailBackgroundResponse atomically marks an in-progress background response as failed.
+func (c *Client) FailBackgroundResponse(ctx context.Context, responseID, errorMessage string) (StoredResponse, error) {
+	resp, err := c.client.FailBackgroundResponse(ctx, &pb.FailBackgroundResponseRequest{
+		ResponseId:   responseID,
+		ErrorMessage: errorMessage,
+	})
+	if err != nil {
+		return StoredResponse{}, err
+	}
+	return fromProtoRecord(resp.GetRecord())
+}
+
+// IsFailedPrecondition reports whether err is a gRPC failed-precondition error.
+func IsFailedPrecondition(err error) bool {
+	if err == nil {
+		return false
+	}
+	st, ok := status.FromError(err)
+	return ok && st.Code() == 9 // codes.FailedPrecondition
+}
+
 // EnsureConsumerGroup creates the Redis stream consumer group when missing.
 func (c *Client) EnsureConsumerGroup(ctx context.Context, consumerGroup, startID string) (bool, error) {
 	resp, err := c.client.EnsureConsumerGroup(ctx, &pb.EnsureConsumerGroupRequest{

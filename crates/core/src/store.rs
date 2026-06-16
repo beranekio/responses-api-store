@@ -8,10 +8,18 @@ use tokio::sync::OnceCell;
 use crate::{
     error::{Result, StoreError},
     model::{
-        is_deleted_tombstone, is_stale_enqueued, response_store_key, should_reconcile_stale,
-        unix_seconds_now, StoredResponse,
+        is_claimable_background, is_deleted_tombstone, is_in_progress_background,
+        is_stale_enqueued, is_terminal_background_status, response_store_key,
+        should_reconcile_stale, unix_seconds_now, StoredResponse,
     },
 };
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClaimBackgroundPayload {
+    pub upstream: String,
+    pub pending_upstream_request: Value,
+    pub upstream_authorization: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct ResponseStore {
@@ -212,6 +220,42 @@ impl ResponseStore {
         Ok(reloaded)
     }
 
+    pub async fn claim_background_response(
+        &self,
+        response_id: &str,
+    ) -> Result<(StoredResponse, ClaimBackgroundPayload)> {
+        self.transition_atomic(response_id, prepare_claim_background)
+            .await
+    }
+
+    pub async fn complete_background_response(
+        &self,
+        response_id: &str,
+        completed_response: Value,
+    ) -> Result<StoredResponse> {
+        let response = completed_response;
+        let (record, _) = self
+            .transition_atomic(response_id, move |stored, id| {
+                prepare_complete_background(stored, id, &response)
+            })
+            .await?;
+        Ok(record)
+    }
+
+    pub async fn fail_background_response(
+        &self,
+        response_id: &str,
+        error_message: &str,
+    ) -> Result<StoredResponse> {
+        let message = error_message.to_string();
+        let (record, _) = self
+            .transition_atomic(response_id, move |stored, id| {
+                prepare_fail_background(stored, id, &message)
+            })
+            .await?;
+        Ok(record)
+    }
+
     pub async fn tombstone_deleted_background(
         &self,
         response_id: &str,
@@ -259,6 +303,106 @@ impl ResponseStore {
         let mut guard = self.transaction_connection.lock().await;
         *guard = connection;
         Ok(())
+    }
+
+    async fn transition_atomic<T, F>(
+        &self,
+        response_id: &str,
+        prepare: F,
+    ) -> Result<(StoredResponse, T)>
+    where
+        F: Fn(&StoredResponse, &str) -> std::result::Result<(StoredResponse, T), StoreError>,
+    {
+        const MAX_ATTEMPTS: u32 = 16;
+        let key = self.key(response_id);
+
+        for attempt in 0..MAX_ATTEMPTS {
+            let attempt_result = {
+                let mut guard = self.transaction_connection.lock().await;
+                discard_open_transaction(&mut guard).await;
+                self.transition_attempt(&mut guard, &key, response_id, &prepare)
+                    .await
+            };
+
+            match attempt_result {
+                Ok(Some((record, result))) => return Ok((record, result)),
+                Ok(None) => {
+                    if attempt + 1 == MAX_ATTEMPTS {
+                        break;
+                    }
+                }
+                Err(StoreError::Storage(err)) => {
+                    tracing::warn!(
+                        response_id,
+                        error = %err,
+                        "background transition transaction failed; resetting dedicated connection"
+                    );
+                    self.reset_transaction_connection().await?;
+                    if attempt + 1 == MAX_ATTEMPTS {
+                        return Err(StoreError::Storage(err));
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(StoreError::Unavailable(format!(
+            "background transition conflict retries exhausted for {response_id}"
+        )))
+    }
+
+    async fn transition_attempt<T, F>(
+        &self,
+        connection: &mut ConnectionManager,
+        key: &str,
+        response_id: &str,
+        prepare: &F,
+    ) -> Result<Option<(StoredResponse, T)>>
+    where
+        F: Fn(&StoredResponse, &str) -> std::result::Result<(StoredResponse, T), StoreError>,
+    {
+        redis::cmd("WATCH")
+            .arg(key)
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        let raw: Option<String> = connection.get(key).await.map_err(StoreError::Storage)?;
+        let Some(raw) = raw else {
+            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            return Err(StoreError::NotFound(response_id.to_string()));
+        };
+
+        let stored: StoredResponse =
+            serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
+        let (updated, result) = prepare(&stored, response_id)?;
+        let payload = serde_json::to_string(&updated)
+            .map_err(|e| StoreError::Serialization(e.to_string()))?;
+        let ttl: i64 = connection.ttl(key).await.map_err(StoreError::Storage)?;
+        let ttl = reconcile_write_ttl(ttl, self.default_ttl_seconds);
+
+        redis::cmd("MULTI")
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+        redis::cmd("SETEX")
+            .arg(key)
+            .arg(ttl)
+            .arg(&payload)
+            .query_async::<()>(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        let exec_result: Option<Vec<redis::Value>> = redis::cmd("EXEC")
+            .query_async(connection)
+            .await
+            .map_err(StoreError::Storage)?;
+
+        if exec_result.is_some() {
+            return Ok(Some((updated, result)));
+        }
+
+        Ok(None)
     }
 
     async fn reconcile_stale_transaction_attempt(
@@ -324,6 +468,109 @@ impl ResponseStore {
 
         Ok(None)
     }
+}
+
+fn prepare_claim_background(
+    stored: &StoredResponse,
+    response_id: &str,
+) -> std::result::Result<(StoredResponse, ClaimBackgroundPayload), StoreError> {
+    if is_terminal_background_status(stored) {
+        return Err(StoreError::FailedPrecondition(format!(
+            "response {response_id} is in a terminal state"
+        )));
+    }
+    if is_in_progress_background(stored) {
+        return Err(StoreError::FailedPrecondition(format!(
+            "response {response_id} is already in progress"
+        )));
+    }
+    if !is_claimable_background(stored) {
+        return Err(StoreError::FailedPrecondition(format!(
+            "response {response_id} is not claimable"
+        )));
+    }
+
+    let payload = ClaimBackgroundPayload {
+        upstream: stored.upstream.clone(),
+        pending_upstream_request: stored
+            .pending_upstream_request
+            .clone()
+            .expect("claimable response has pending upstream request"),
+        upstream_authorization: stored.upstream_authorization.clone(),
+    };
+
+    let mut updated = stored.clone();
+    updated.pending_upstream_request = None;
+    updated.upstream_authorization = None;
+    updated.response["status"] = Value::String("in_progress".to_string());
+    updated.response["id"] = Value::String(response_id.to_string());
+    updated.response["background"] = Value::Bool(true);
+
+    Ok((updated, payload))
+}
+
+fn prepare_complete_background(
+    stored: &StoredResponse,
+    response_id: &str,
+    completed_response: &Value,
+) -> std::result::Result<(StoredResponse, ()), StoreError> {
+    if is_terminal_background_status(stored) {
+        return Err(StoreError::FailedPrecondition(format!(
+            "response {response_id} is in a terminal state"
+        )));
+    }
+    if !is_in_progress_background(stored) {
+        return Err(StoreError::FailedPrecondition(format!(
+            "response {response_id} is not in progress"
+        )));
+    }
+
+    let mut updated = stored.clone();
+    updated.response = completed_response.clone();
+    updated.response["id"] = Value::String(response_id.to_string());
+    if updated.response.get("status").is_none() {
+        updated.response["status"] = Value::String("completed".to_string());
+    }
+    updated.pending_upstream_request = None;
+    updated.upstream_authorization = None;
+
+    Ok((updated, ()))
+}
+
+fn prepare_fail_background(
+    stored: &StoredResponse,
+    response_id: &str,
+    error_message: &str,
+) -> std::result::Result<(StoredResponse, ()), StoreError> {
+    if is_terminal_background_status(stored) {
+        return Err(StoreError::FailedPrecondition(format!(
+            "response {response_id} is in a terminal state"
+        )));
+    }
+
+    let claimable = is_claimable_background(stored);
+    let in_progress = is_in_progress_background(stored);
+    if !claimable && !in_progress {
+        return Err(StoreError::FailedPrecondition(format!(
+            "response {response_id} is not in progress"
+        )));
+    }
+
+    let mut updated = stored.clone();
+    updated.response = json!({
+        "id": response_id,
+        "object": "response",
+        "status": "failed",
+        "background": true,
+        "error": {
+            "message": error_message,
+            "type": "server_error"
+        }
+    });
+    updated.pending_upstream_request = None;
+    updated.upstream_authorization = None;
+
+    Ok((updated, ()))
 }
 
 async fn discard_open_transaction(connection: &mut ConnectionManager) {

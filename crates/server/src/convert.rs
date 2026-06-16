@@ -129,6 +129,7 @@ fn store_error_to_status(err: StoreError) -> Status {
         StoreError::NotFound(id) if id.contains("consumer group") => Status::not_found(id),
         StoreError::NotFound(id) => Status::not_found(format!("response not found: {id}")),
         StoreError::InvalidArgument(message) => Status::invalid_argument(message),
+        StoreError::FailedPrecondition(message) => Status::failed_precondition(message),
         StoreError::Unavailable(message) => Status::unavailable(message),
         StoreError::Storage(err) => {
             let kind = redis_error_kind(&err);

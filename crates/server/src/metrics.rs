@@ -142,6 +142,11 @@ async fn stats_for_query(
             Json(serde_json::json!({ "error": message })),
         )
             .into_response()),
+        Err(StoreError::FailedPrecondition(message)) => Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response()),
     }
 }
 
