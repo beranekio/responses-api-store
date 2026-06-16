@@ -369,17 +369,28 @@ impl ResponseStore {
 
         let raw: Option<String> = connection.get(key).await.map_err(StoreError::Storage)?;
         let Some(raw) = raw else {
-            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            unwatch(connection).await;
             return Err(StoreError::NotFound(response_id.to_string()));
         };
 
-        let stored: StoredResponse =
-            serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
-        let (updated, result) = prepare(&stored, response_id)?;
-        let payload = serde_json::to_string(&updated)
-            .map_err(|e| StoreError::Serialization(e.to_string()))?;
-        let ttl: i64 = connection.ttl(key).await.map_err(StoreError::Storage)?;
-        let ttl = reconcile_write_ttl(ttl, self.default_ttl_seconds);
+        let (updated, payload, ttl, result) = match async {
+            let stored: StoredResponse =
+                serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
+            let (updated, result) = prepare(&stored, response_id)?;
+            let payload = serde_json::to_string(&updated)
+                .map_err(|e| StoreError::Serialization(e.to_string()))?;
+            let ttl: i64 = connection.ttl(key).await.map_err(StoreError::Storage)?;
+            let ttl = reconcile_write_ttl(ttl, self.default_ttl_seconds);
+            Ok::<_, StoreError>((updated, payload, ttl, result))
+        }
+        .await
+        {
+            Ok(values) => values,
+            Err(err) => {
+                unwatch(connection).await;
+                return Err(err);
+            }
+        };
 
         redis::cmd("MULTI")
             .query_async::<()>(connection)
@@ -422,27 +433,41 @@ impl ResponseStore {
         let raw: Option<String> = connection.get(key).await.map_err(StoreError::Storage)?;
 
         let Some(raw) = raw else {
-            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            unwatch(connection).await;
             return Err(StoreError::NotFound(response_id.to_string()));
         };
 
-        let stored: StoredResponse =
-            serde_json::from_str(&raw).map_err(|e| StoreError::Serialization(e.to_string()))?;
+        let stored: StoredResponse = match serde_json::from_str(&raw) {
+            Ok(stored) => stored,
+            Err(err) => {
+                unwatch(connection).await;
+                return Err(StoreError::Serialization(err.to_string()));
+            }
+        };
 
         if !should_reconcile_stale(&stored)
             || !is_stale_enqueued(stored.enqueued_at, now, stale_seconds)
         {
-            let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
+            unwatch(connection).await;
             return Ok(Some(stored));
         }
 
         let mut updated = stored;
         apply_stale_failure(&mut updated, response_id);
-        let payload = serde_json::to_string(&updated)
-            .map_err(|e| StoreError::Serialization(e.to_string()))?;
-
-        let ttl: i64 = connection.ttl(key).await.map_err(StoreError::Storage)?;
-        let ttl = reconcile_write_ttl(ttl, self.default_ttl_seconds);
+        let payload = match serde_json::to_string(&updated) {
+            Ok(payload) => payload,
+            Err(err) => {
+                unwatch(connection).await;
+                return Err(StoreError::Serialization(err.to_string()));
+            }
+        };
+        let ttl = match connection.ttl(key).await {
+            Ok(ttl) => reconcile_write_ttl(ttl, self.default_ttl_seconds),
+            Err(err) => {
+                unwatch(connection).await;
+                return Err(StoreError::Storage(err));
+            }
+        };
 
         redis::cmd("MULTI")
             .query_async::<()>(connection)
@@ -500,8 +525,6 @@ fn prepare_claim_background(
     };
 
     let mut updated = stored.clone();
-    updated.pending_upstream_request = None;
-    updated.upstream_authorization = None;
     updated.response["status"] = Value::String("in_progress".to_string());
     updated.response["id"] = Value::String(response_id.to_string());
     updated.response["background"] = Value::Bool(true);
@@ -514,6 +537,11 @@ fn prepare_complete_background(
     response_id: &str,
     completed_response: &Value,
 ) -> std::result::Result<(StoredResponse, ()), StoreError> {
+    if !completed_response.is_object() {
+        return Err(StoreError::InvalidArgument(format!(
+            "completed response for {response_id} must be a JSON object"
+        )));
+    }
     if is_terminal_background_status(stored) {
         return Err(StoreError::FailedPrecondition(format!(
             "response {response_id} is in a terminal state"
@@ -575,6 +603,10 @@ fn prepare_fail_background(
 
 async fn discard_open_transaction(connection: &mut ConnectionManager) {
     let _ = redis::cmd("DISCARD").query_async::<()>(connection).await;
+}
+
+async fn unwatch(connection: &mut ConnectionManager) {
+    let _ = redis::cmd("UNWATCH").query_async::<()>(connection).await;
 }
 
 fn reconcile_write_ttl(redis_ttl: i64, default_ttl_seconds: u64) -> u64 {

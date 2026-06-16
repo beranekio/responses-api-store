@@ -62,7 +62,11 @@ async fn claim_background_response_transitions_queued_to_in_progress() {
         .await
         .expect("claim background response");
     assert!(is_in_progress_background(&record));
-    assert!(record.pending_upstream_request.is_none());
+    assert!(record.pending_upstream_request.is_some());
+    assert_eq!(
+        record.upstream_authorization.as_deref(),
+        Some("Bearer token")
+    );
     assert_eq!(payload.upstream, "http://model/v1");
     assert_eq!(payload.pending_upstream_request["input"], "hello");
     assert_eq!(
@@ -75,6 +79,44 @@ async fn claim_background_response_transitions_queued_to_in_progress() {
         .await
         .expect_err("second claim should fail");
     assert!(matches!(err, StoreError::FailedPrecondition(_)));
+}
+
+#[tokio::test]
+async fn complete_background_response_rejects_non_object_json() {
+    let redis_url = match std::env::var("RESPONSE_ID_STORE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("skipping complete_background_response_rejects_non_object_json: RESPONSE_ID_STORE_URL unset");
+            return;
+        }
+    };
+
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let Some(store) = connect_store(&redis_url, suffix).await else {
+        eprintln!(
+            "skipping complete_background_response_rejects_non_object_json: redis unavailable"
+        );
+        return;
+    };
+
+    let response_id = format!("resp_{suffix}");
+    store
+        .store(&response_id, &queued_record(&response_id), None)
+        .await
+        .expect("store queued response");
+    store
+        .claim_background_response(&response_id)
+        .await
+        .expect("claim");
+
+    let err = store
+        .complete_background_response(&response_id, json!([]))
+        .await
+        .expect_err("complete should reject non-object json");
+    assert!(matches!(err, StoreError::InvalidArgument(_)));
 }
 
 #[tokio::test]

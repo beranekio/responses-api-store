@@ -7,6 +7,7 @@ import (
 
 	pb "github.com/beranekio/responses-api-store/sdk/go/responsesapistore/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
@@ -231,19 +232,32 @@ func (c *Client) GetBackgroundQueueStats(ctx context.Context, consumerGroup stri
 	}, nil
 }
 
+// ClaimBackgroundResponseResult contains the outcome of claiming a background response.
+type ClaimBackgroundResponseResult struct {
+	Record                StoredResponse
+	PendingRequest        json.RawMessage
+	Upstream              string
+	UpstreamAuthorization string
+}
+
 // ClaimBackgroundResponse atomically claims a queued background response for processing.
-func (c *Client) ClaimBackgroundResponse(ctx context.Context, responseID string) (StoredResponse, json.RawMessage, string, string, error) {
+func (c *Client) ClaimBackgroundResponse(ctx context.Context, responseID string) (*ClaimBackgroundResponseResult, error) {
 	resp, err := c.client.ClaimBackgroundResponse(ctx, &pb.ClaimBackgroundResponseRequest{
 		ResponseId: responseID,
 	})
 	if err != nil {
-		return StoredResponse{}, nil, "", "", err
+		return nil, err
 	}
 	record, err := fromProtoRecord(resp.GetRecord())
 	if err != nil {
-		return StoredResponse{}, nil, "", "", err
+		return nil, err
 	}
-	return record, json.RawMessage(resp.GetPendingUpstreamRequestJson()), resp.GetUpstream(), resp.GetUpstreamAuthorization(), nil
+	return &ClaimBackgroundResponseResult{
+		Record:                record,
+		PendingRequest:        json.RawMessage(resp.GetPendingUpstreamRequestJson()),
+		Upstream:              resp.GetUpstream(),
+		UpstreamAuthorization: resp.GetUpstreamAuthorization(),
+	}, nil
 }
 
 // CompleteBackgroundResponse atomically persists a completed background response.
@@ -276,7 +290,7 @@ func IsFailedPrecondition(err error) bool {
 		return false
 	}
 	st, ok := status.FromError(err)
-	return ok && st.Code() == 9 // codes.FailedPrecondition
+	return ok && st.Code() == codes.FailedPrecondition
 }
 
 // EnsureConsumerGroup creates the Redis stream consumer group when missing.

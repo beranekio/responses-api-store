@@ -357,6 +357,12 @@ impl ResponsesApiStore for ResponsesApiStoreService {
                     request.response_id
                 ))
             })?;
+        if !completed_response.is_object() {
+            return Err(Status::invalid_argument(format!(
+                "response_json for {} must be a JSON object",
+                request.response_id
+            )));
+        }
         let record = self
             .store
             .complete_background_response(&request.response_id, completed_response)
