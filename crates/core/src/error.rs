@@ -19,6 +19,8 @@ pub enum StoreError {
     NotFound(String),
     #[error("invalid request: {0}")]
     InvalidArgument(String),
+    #[error("precondition failed: {0}")]
+    FailedPrecondition(String),
     #[error("storage unavailable: {0}")]
     Unavailable(String),
     #[error("storage error: {0}")]

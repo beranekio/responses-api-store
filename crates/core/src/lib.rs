@@ -12,9 +12,12 @@ pub use config::{
 pub use error::{redis_error_kind, StoreError};
 pub use model::{
     autoclaim_cursor_key, build_cancelled_response, build_queued_response, build_upstream_request,
-    generate_response_id, is_deleted_tombstone, is_in_flight_background, response_id_from_value,
+    generate_response_id, is_claimable_background, is_deleted_tombstone, is_in_flight_background,
+    is_in_progress_background, is_terminal_background_status, response_id_from_value,
     response_store_key, stored_response_status, unix_seconds_now, BackgroundJob,
     PendingBackgroundJob, StoredResponse,
 };
 pub use queue::{BackgroundQueue, BackgroundQueueStats, ClaimBatchResult, ClaimOptions};
-pub use store::{load_redis_capabilities, RedisCapabilities, ResponseStore};
+pub use store::{
+    load_redis_capabilities, ClaimBackgroundPayload, RedisCapabilities, ResponseStore,
+};

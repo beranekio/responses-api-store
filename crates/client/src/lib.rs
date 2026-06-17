@@ -2,15 +2,16 @@
 
 mod error;
 
-pub use error::{is_not_found, ClientError, Result};
+pub use error::{is_failed_precondition, is_not_found, ClientError, Result};
 pub use responses_api_store_core::{
     build_cancelled_response, build_queued_response, build_upstream_request, generate_response_id,
     is_in_flight_background, response_id_from_value, stored_response_status, BackgroundJob,
-    BackgroundQueueStats, PendingBackgroundJob, StoredResponse,
+    BackgroundQueueStats, ClaimBackgroundPayload, PendingBackgroundJob, StoredResponse,
 };
 pub use responses_api_store_proto::v1::{
-    AcknowledgeBackgroundJobRequest, ClaimBackgroundJobsRequest, DeleteResponseRequest,
-    EnqueueBackgroundJobRequest, EnsureConsumerGroupRequest, GenerateResponseIdRequest,
+    AcknowledgeBackgroundJobRequest, ClaimBackgroundJobsRequest, ClaimBackgroundResponseRequest,
+    CompleteBackgroundResponseRequest, DeleteResponseRequest, EnqueueBackgroundJobRequest,
+    EnsureConsumerGroupRequest, FailBackgroundResponseRequest, GenerateResponseIdRequest,
     GetBackgroundQueueStatsRequest, GetResponseRequest, HealthRequest,
     ReconcileStaleResponseRequest, StoreResponseRequest, UpdateResponseRequest,
 };
@@ -223,6 +224,65 @@ impl Client {
             in_progress: response.in_progress,
             workload: response.workload,
         })
+    }
+
+    pub async fn claim_background_response(
+        &mut self,
+        response_id: &str,
+    ) -> Result<(StoredResponse, ClaimBackgroundPayload)> {
+        let response = self
+            .inner
+            .claim_background_response(ClaimBackgroundResponseRequest {
+                response_id: response_id.to_string(),
+            })
+            .await?
+            .into_inner();
+        let record = from_proto_record(response.record.as_ref(), response_id)?;
+        let pending_upstream_request =
+            serde_json::from_str(&response.pending_upstream_request_json)
+                .map_err(|e| ClientError::Serialization(e.to_string()))?;
+        Ok((
+            record,
+            ClaimBackgroundPayload {
+                upstream: response.upstream,
+                pending_upstream_request,
+                upstream_authorization: response.upstream_authorization,
+            },
+        ))
+    }
+
+    pub async fn complete_background_response(
+        &mut self,
+        response_id: &str,
+        completed_response: &serde_json::Value,
+    ) -> Result<StoredResponse> {
+        let response_json = serde_json::to_string(completed_response)
+            .map_err(|e| ClientError::Serialization(e.to_string()))?;
+        let response = self
+            .inner
+            .complete_background_response(CompleteBackgroundResponseRequest {
+                response_id: response_id.to_string(),
+                response_json,
+            })
+            .await?
+            .into_inner();
+        from_proto_record(response.record.as_ref(), response_id)
+    }
+
+    pub async fn fail_background_response(
+        &mut self,
+        response_id: &str,
+        error_message: &str,
+    ) -> Result<StoredResponse> {
+        let response = self
+            .inner
+            .fail_background_response(FailBackgroundResponseRequest {
+                response_id: response_id.to_string(),
+                error_message: error_message.to_string(),
+            })
+            .await?
+            .into_inner();
+        from_proto_record(response.record.as_ref(), response_id)
     }
 
     pub async fn reconcile_stale_response(

@@ -37,6 +37,10 @@ Protobuf definition: [`proto/responsesapistore/v1/store.proto`](proto/responsesa
 | `ClaimBackgroundJobs` | Claim jobs for worker processing (`XREADGROUP` + `XAUTOCLAIM`); may return `pending_jobs` (and legacy `pending_stream_ids`) when record load fails transiently |
 | `AcknowledgeBackgroundJob` | Acknowledge successful job processing |
 | `EnsureConsumerGroup` | Bootstrap the Redis stream consumer group |
+| `GetBackgroundQueueStats` | Return pending, in-progress, and workload counts for KEDA |
+| `ClaimBackgroundResponse` | Atomically claim a queued background response (`queued` → `in_progress`) and return upstream payload |
+| `CompleteBackgroundResponse` | Atomically persist a completed response when `in_progress` |
+| `FailBackgroundResponse` | Atomically mark an `in_progress` (or claimable) response as `failed` |
 | `ReconcileStaleResponse` | Mark stale queued responses as `failed` |
 | `GenerateResponseId` | Allocate a new `resp_*` identifier |
 | `Health` | Report service and Redis connectivity |
@@ -46,6 +50,8 @@ Protobuf definition: [`proto/responsesapistore/v1/store.proto`](proto/responsesa
 **Missing or deleted responses:** `GetResponse` returns gRPC `NOT_FOUND` with message `response not found: <id>`. The server does not return a successful RPC with an empty `record`. Rust clients should use `responses_api_store_client::is_not_found` to detect absent IDs from either `ClientError::NotFound` or `ClientError::Rpc` with code `NOT_FOUND`. The Go client provides `client.IsNotFound(err)`.
 
 **Storage failures:** Valkey/Redis errors map to gRPC `UNAVAILABLE` with messages like `storage unavailable (timeout): ...`. The `(timeout)`, `(connection_refused)`, `(busy)`, or `(other)` prefix distinguishes common failure modes. Background workers should retry `ClaimBackgroundJobs` on `UNAVAILABLE`. Blocking `XREADGROUP` calls open a dedicated Redis connection per request (not the shared command pool) with a client response timeout of `block_ms + 500ms`, so values above the default 500ms redis-rs timeout work as intended without wedging server tasks indefinitely.
+
+**Background transition errors:** `ClaimBackgroundResponse`, `CompleteBackgroundResponse`, and `FailBackgroundResponse` return gRPC `NOT_FOUND` when the stored record is missing or expired (same `response not found: <id>` message as `GetResponse`). Use `responses_api_store_client::is_not_found` or `client.IsNotFound(err)` for that case—for example when a record TTLs out between `ClaimBackgroundJobs` and `ClaimBackgroundResponse`. These RPCs return gRPC `FAILED_PRECONDITION` when the record exists but is terminal (`cancelled`/`deleted`/`completed`/`failed`) or in the wrong state (for example completing while still `queued`). Use `responses_api_store_client::is_failed_precondition` or `client.IsFailedPrecondition(err)` for lifecycle conflicts. `ClaimBackgroundResponse` keeps `pending_upstream_request` and `upstream_authorization` on the stored record until completion or failure so stream/autoclaim retries can re-hydrate claim payload after worker crashes.
 
 ## Repository layout
 

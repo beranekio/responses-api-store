@@ -64,6 +64,24 @@ pub fn is_deleted_tombstone(stored: &StoredResponse) -> bool {
     stored_response_status(stored) == Some("deleted")
 }
 
+pub fn is_terminal_background_status(stored: &StoredResponse) -> bool {
+    if is_deleted_tombstone(stored) {
+        return true;
+    }
+    matches!(
+        stored_response_status(stored),
+        Some("cancelled") | Some("completed") | Some("failed")
+    )
+}
+
+pub fn is_claimable_background(stored: &StoredResponse) -> bool {
+    stored.pending_upstream_request.is_some() && stored_response_status(stored) == Some("queued")
+}
+
+pub fn is_in_progress_background(stored: &StoredResponse) -> bool {
+    stored_response_status(stored) == Some("in_progress")
+}
+
 pub fn is_in_flight_background(stored: &StoredResponse) -> bool {
     stored.pending_upstream_request.is_some()
         || matches!(
