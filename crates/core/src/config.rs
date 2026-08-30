@@ -121,6 +121,14 @@ fn parse_env_usize(name: &str, default: usize) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, PoisonError};
+
+    /// `METRICS_HTTP_ENABLED` is process-wide; parallel tests racing `set_var` flake in CI.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 
     #[test]
     fn rejects_non_positive_stale_seconds() {
@@ -173,6 +181,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_metrics_http_enabled_values() {
+        let _guard = lock_env();
         let var = "METRICS_HTTP_ENABLED";
         std::env::set_var(var, "treu");
         assert!(metrics_http_enabled_from_env().is_err());
@@ -181,6 +190,7 @@ mod tests {
 
     #[test]
     fn accepts_explicit_metrics_http_enabled_values() {
+        let _guard = lock_env();
         let var = "METRICS_HTTP_ENABLED";
         std::env::set_var(var, "false");
         assert!(!metrics_http_enabled_from_env().unwrap());
